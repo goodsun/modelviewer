@@ -388,10 +388,8 @@ This project includes code from the following third-party libraries:
       <!-- モデルビューアー -->
       <model-viewer
         id="modelViewer"
-        src="https://arweave.net/_C_OKb35xxREfnY9y-I8ws4o_tvmP3nyMjNhT_3a_F0"
         alt="goodsun | bon-soleil"
         camera-controls
-        auto-rotate
         loading="eager"
         reveal="auto"
         exposure="0.7"
@@ -532,6 +530,11 @@ This project includes code from the following third-party libraries:
       modelViewer.addEventListener("load", () => {
         console.log("Model loaded successfully");
         updateBackgroundColor();
+        
+        // 裏面に色をつける - 複数のアプローチを順次試行
+        setTimeout(() => {
+          addBackfaceColorSimple();
+        }, 500);
       });
 
       modelViewer.addEventListener("error", (event) => {
@@ -673,6 +676,585 @@ This project includes code from the following third-party libraries:
       function clearError() {
         // エラー表示をクリア（必要に応じて実装）
       }
+      
+      // シンプルなアプローチで裏面に色をつける
+      function addBackfaceColorSimple() {
+        console.log("🎯 Starting simple backface color approach...");
+        
+        // CSS/WebGLでのグローバルアプローチ
+        try {
+          // 1. CSSでのアプローチ（制限はあるが試してみる）
+          const style = document.createElement('style');
+          style.textContent = `
+            model-viewer {
+              --model-viewer-backface-color: #ff0000;
+            }
+          `;
+          document.head.appendChild(style);
+          console.log("✓ CSS backface style added");
+          
+        } catch (error) {
+          console.log("CSS approach failed:", error);
+        }
+        
+        // 2. model-viewerのイベントとAPIを使用
+        modelViewer.addEventListener('model-visibility', () => {
+          console.log("Model visibility changed, trying direct access...");
+          tryDirectAccess();
+        });
+        
+        // 3. 強制的にシーンを探す
+        tryDirectAccess();
+        
+        // 4. WebGLシェーダーを直接操作
+        setTimeout(() => {
+          injectWebGLShader();
+        }, 1000);
+      }
+      
+      // 直接アクセスを試行
+      function tryDirectAccess() {
+        console.log("🔍 Trying direct access methods...");
+        
+        // Model-viewerの内部プロパティを直接確認
+        console.log("ModelViewer properties:", Object.getOwnPropertyNames(modelViewer));
+        
+        // Symbolプロパティも確認
+        const symbols = Object.getOwnPropertySymbols(modelViewer);
+        console.log("ModelViewer symbols:", symbols);
+        
+        // 各Symbolプロパティを確認
+        symbols.forEach((symbol, index) => {
+          try {
+            const value = modelViewer[symbol];
+            console.log(`Symbol ${index} (${symbol.toString()}):`, typeof value, value);
+            
+            // Three.jsオブジェクトっぽいものを探す
+            if (value && typeof value === 'object') {
+              if (value.scene || value.model || (value.children && value.children.length > 0)) {
+                console.log("Found potential scene in symbol property:", symbol.toString());
+                processAnyObject(value, `Symbol[${symbol.toString()}]`);
+              }
+            }
+          } catch (e) {
+            console.log(`Cannot access symbol ${index}:`, e.message);
+          }
+        });
+        
+        // プロトタイプチェーンも確認
+        let proto = Object.getPrototypeOf(modelViewer);
+        let depth = 0;
+        while (proto && depth < 5) {
+          console.log(`Prototype ${depth}:`, proto.constructor.name);
+          const protoProps = Object.getOwnPropertyNames(proto);
+          protoProps.forEach(prop => {
+            if (prop.includes('scene') || prop.includes('model') || prop.includes('three')) {
+              console.log(`Found potential property in prototype: ${prop}`);
+              try {
+                const value = modelViewer[prop];
+                if (value && typeof value === 'object') {
+                  processAnyObject(value, prop);
+                }
+              } catch (e) {
+                console.log(`Cannot access ${prop}:`, e.message);
+              }
+            }
+          });
+          proto = Object.getPrototypeOf(proto);
+          depth++;
+        }
+      }
+      
+      // 任意のオブジェクトを処理
+      function processAnyObject(obj, path) {
+        console.log(`🔧 Processing object at ${path}:`, obj);
+        
+        if (!obj) return;
+        
+        // Three.jsオブジェクトかチェック
+        if (obj.traverse && typeof obj.traverse === 'function') {
+          console.log(`✓ Found traversable object at ${path}`);
+          processThreeScene(obj, path);
+          return;
+        }
+        
+        // 子要素やプロパティを探す
+        if (obj.scene && obj.scene.traverse) {
+          console.log(`✓ Found scene at ${path}.scene`);
+          processThreeScene(obj.scene, `${path}.scene`);
+          return;
+        }
+        
+        if (obj.model && obj.model.traverse) {
+          console.log(`✓ Found model at ${path}.model`);
+          processThreeScene(obj.model, `${path}.model`);
+          return;
+        }
+        
+        // 配列やオブジェクトの中も探す
+        if (obj.children && Array.isArray(obj.children)) {
+          obj.children.forEach((child, index) => {
+            if (child && typeof child === 'object') {
+              processAnyObject(child, `${path}.children[${index}]`);
+            }
+          });
+        }
+        
+        // その他のプロパティも浅く探す
+        for (let key in obj) {
+          if (key !== 'children' && obj[key] && typeof obj[key] === 'object') {
+            if (obj[key].traverse || obj[key].scene || obj[key].model) {
+              processAnyObject(obj[key], `${path}.${key}`);
+            }
+          }
+        }
+      }
+      
+      // Three.jsシーンを処理
+      function processThreeScene(scene, path) {
+        console.log(`🎨 Processing Three.js scene at ${path}`);
+        
+        let meshCount = 0;
+        
+        scene.traverse((node) => {
+          if (node.isMesh && node.material) {
+            meshCount++;
+            console.log(`Processing mesh ${meshCount}: ${node.name || 'unnamed'}`);
+            
+            const materials = Array.isArray(node.material) ? node.material : [node.material];
+            
+            materials.forEach((material, index) => {
+              if (material) {
+                // 両面表示
+                material.side = 2; // THREE.DoubleSide
+                
+                // シェーダー修正
+                material.onBeforeCompile = function(shader) {
+                  console.log(`Modifying shader for material ${index}`);
+                  
+                  // フラグメントシェーダーに裏面色を追加
+                  shader.fragmentShader = shader.fragmentShader.replace(
+                    'void main() {',
+                    `
+                    void main() {
+                    `
+                  );
+                  
+                  // 最終出力前に裏面チェック
+                  shader.fragmentShader = shader.fragmentShader.replace(
+                    /}\s*$/,
+                    `
+                    // 裏面の場合は黒に変更
+                    if (!gl_FrontFacing) {
+                      gl_FragColor = vec4(0.0, 0.0, 0.0, gl_FragColor.a);
+                    }
+                    }
+                    `
+                  );
+                };
+                
+                material.needsUpdate = true;
+                console.log(`✓ Material ${index} processed for backface coloring`);
+              }
+            });
+          }
+        });
+        
+        console.log(`🎉 Successfully processed ${meshCount} meshes in scene at ${path}`);
+      }
+      
+      // WebGLシェーダーを直接操作
+      function injectWebGLShader() {
+        console.log("🎮 Attempting WebGL shader injection...");
+        
+        try {
+          const canvas = modelViewer.shadowRoot?.querySelector('canvas');
+          if (!canvas) {
+            console.log("No canvas found for WebGL injection");
+            return;
+          }
+          
+          const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
+          if (!gl) {
+            console.log("No WebGL context found");
+            return;
+          }
+          
+          console.log("WebGL context acquired, attempting shader override...");
+          
+          // WebGLの関数をオーバーライド（実験的）
+          const originalShaderSource = gl.shaderSource;
+          gl.shaderSource = function(shader, source) {
+            if (source.includes('gl_FragColor') && !source.includes('gl_FrontFacing')) {
+              console.log("Modifying fragment shader...");
+              source = source.replace(
+                /gl_FragColor\s*=\s*([^;]+);/g,
+                `
+                if (gl_FrontFacing) {
+                  gl_FragColor = $1;
+                } else {
+                  gl_FragColor = vec4(1.0, 0.0, 0.0, ($1).a);
+                }
+                `
+              );
+            }
+            return originalShaderSource.call(this, shader, source);
+          };
+          
+          console.log("✓ WebGL shader override installed");
+          
+        } catch (error) {
+          console.error("WebGL shader injection failed:", error);
+        }
+      }
+      
+      // 裏面に色をつける関数
+      async function addBackfaceColor() {
+        console.log("Starting backface color application...");
+        
+        try {
+          // model-viewerが完全に読み込まれるまで待機
+          await modelViewer.updateComplete;
+          
+          if (!modelViewer.model) {
+            console.log("Model not available yet, retrying...");
+            setTimeout(() => addBackfaceColor(), 300);
+            return;
+          }
+          
+          const model = modelViewer.model;
+          console.log("Model object:", model);
+          console.log("Model constructor:", model.constructor.name);
+          console.log("Model keys:", Object.keys(model));
+          console.log("Model type:", model.type);
+          
+          // プロパティを詳細に調査
+          for (let key in model) {
+            if (model.hasOwnProperty(key)) {
+              console.log(`model.${key}:`, typeof model[key], model[key]);
+            }
+          }
+          
+          // 可能性のあるシーンアクセス方法を全て試す
+          let scene = null;
+          
+          // 方法1: 直接sceneプロパティ
+          if (model.scene && typeof model.scene.traverse === 'function') {
+            scene = model.scene;
+            console.log("✓ Found scene via model.scene");
+          }
+          // 方法2: scenesプロパティ
+          else if (model.scenes && model.scenes.length > 0 && typeof model.scenes[0].traverse === 'function') {
+            scene = model.scenes[0];
+            console.log("✓ Found scene via model.scenes[0]");
+          }
+          // 方法3: モデル自体がシーンの場合
+          else if (model.children && typeof model.traverse === 'function') {
+            scene = model;
+            console.log("✓ Using model directly as scene");
+          }
+          // 方法4: nodeプロパティ
+          else if (model.node && typeof model.node.traverse === 'function') {
+            scene = model.node;
+            console.log("✓ Found scene via model.node");
+          }
+          // 方法5: rootプロパティ
+          else if (model.root && typeof model.root.traverse === 'function') {
+            scene = model.root;
+            console.log("✓ Found scene via model.root");
+          }
+          // 方法6: 他の可能性
+          else {
+            console.log("Checking all properties for traverse method...");
+            for (let key in model) {
+              if (model[key] && typeof model[key].traverse === 'function') {
+                scene = model[key];
+                console.log(`✓ Found scene via model.${key}`);
+                break;
+              }
+            }
+          }
+          
+          if (!scene) {
+            console.error("❌ No traversable scene found in model");
+            console.log("Attempting manual processing...");
+            processNodeManually(model);
+            return;
+          }
+          
+          console.log("Scene object:", scene);
+          console.log("Scene type:", scene.type);
+          console.log("Scene children:", scene.children ? scene.children.length : 'none');
+          
+          let processedCount = 0;
+          
+          scene.traverse((node) => {
+            if (node.isMesh && node.material) {
+              processedCount++;
+              console.log(`Processing mesh ${processedCount}:`, node.name || 'unnamed');
+              
+              const materials = Array.isArray(node.material) ? node.material : [node.material];
+              
+              materials.forEach((material, index) => {
+                if (material) {
+                  console.log(`Processing material ${index}:`, material.type);
+                  
+                  // 両面表示を有効にする
+                  material.side = 2; // THREE.DoubleSide
+                  
+                  // カスタムシェーダーで裏面に色をつける
+                  material.onBeforeCompile = function(shader) {
+                    console.log("Compiling shader for material:", material.name || index);
+                    
+                    shader.fragmentShader = shader.fragmentShader.replace(
+                      '#include <output_fragment>',
+                      `
+                      #include <output_fragment>
+                      
+                      if ( !gl_FrontFacing ) {
+                        gl_FragColor = vec4( 1.0, 0.0, 0.0, gl_FragColor.a );
+                      }
+                      `
+                    );
+                  };
+                  
+                  material.needsUpdate = true;
+                  console.log(`✓ Material ${index} processed`);
+                }
+              });
+            }
+          });
+          
+          console.log(`✅ Successfully processed ${processedCount} meshes`);
+          
+        } catch (error) {
+          console.error("❌ Error in addBackfaceColor:", error);
+        }
+      }
+      
+      // 手動でノードを処理する関数
+      function processNodeManually(node, depth = 0) {
+        const indent = "  ".repeat(depth);
+        console.log(`${indent}Processing node:`, node.constructor.name, node.type || 'unknown', node.name || 'unnamed');
+        
+        let processedCount = 0;
+        
+        // メッシュかどうかチェック
+        if (node.isMesh && node.material) {
+          processedCount++;
+          console.log(`${indent}✓ Found mesh:`, node.name || 'unnamed');
+          
+          const materials = Array.isArray(node.material) ? node.material : [node.material];
+          
+          materials.forEach((material, index) => {
+            if (material) {
+              console.log(`${indent}  Processing material ${index}:`, material.type);
+              
+              // 両面表示を有効にする
+              material.side = 2; // THREE.DoubleSide
+              
+              // カスタムシェーダーで裏面に色をつける
+              material.onBeforeCompile = function(shader) {
+                console.log(`${indent}  Compiling shader for material:`, material.name || index);
+                
+                shader.fragmentShader = shader.fragmentShader.replace(
+                  '#include <output_fragment>',
+                  `
+                  #include <output_fragment>
+                  
+                  if ( !gl_FrontFacing ) {
+                    gl_FragColor = vec4( 1.0, 0.0, 0.0, gl_FragColor.a );
+                  }
+                  `
+                );
+              };
+              
+              material.needsUpdate = true;
+              console.log(`${indent}  ✓ Material ${index} processed`);
+            }
+          });
+        }
+        
+        // 子ノードを再帰的に処理
+        if (node.children && node.children.length > 0) {
+          console.log(`${indent}Found ${node.children.length} children`);
+          for (let i = 0; i < node.children.length; i++) {
+            const child = node.children[i];
+            const childProcessed = processNodeManually(child, depth + 1);
+            processedCount += childProcessed;
+          }
+        }
+        
+        // オブジェクトの他のプロパティもチェック
+        for (let key in node) {
+          if (key !== 'children' && node[key] && typeof node[key] === 'object' && node[key].constructor && node[key].constructor.name) {
+            if (node[key].isMesh || (node[key].children && node[key].children.length > 0)) {
+              console.log(`${indent}Checking property ${key}:`, node[key].constructor.name);
+              const propProcessed = processNodeManually(node[key], depth + 1);
+              processedCount += propProcessed;
+            }
+          }
+        }
+        
+        if (depth === 0) {
+          console.log(`✅ Manual processing complete. Processed ${processedCount} meshes total.`);
+        }
+        
+        return processedCount;
+      }
+      
+      // 代替アプローチ：Three.jsレンダラーに直接アクセス
+      function tryAlternativeApproach() {
+        console.log("🔄 Trying alternative approach...");
+        
+        try {
+          // Shadow DOMからcanvasを取得
+          const shadowRoot = modelViewer.shadowRoot;
+          if (!shadowRoot) {
+            console.log("No shadow root found");
+            return;
+          }
+          
+          const canvas = shadowRoot.querySelector('canvas');
+          if (!canvas) {
+            console.log("No canvas found in shadow root");
+            return;
+          }
+          
+          console.log("Canvas found:", canvas);
+          
+          // WebGLレンダリングコンテキストを取得
+          const gl = canvas.getContext('webgl') || canvas.getContext('webgl2');
+          if (!gl) {
+            console.log("No WebGL context found");
+            return;
+          }
+          
+          console.log("WebGL context found");
+          
+          // model-viewerの内部APIを使用（実験的）
+          if (modelViewer.model && modelViewer.model.scene) {
+            console.log("✓ Found scene via model.scene in alternative approach");
+            processSceneAlternative(modelViewer.model.scene);
+            return;
+          }
+          
+          // より深いレベルでのアクセスを試行
+          const allProperties = getAllProperties(modelViewer);
+          console.log("All model-viewer properties:", allProperties);
+          
+          // Three.jsのシーンを探す
+          for (let prop of allProperties) {
+            try {
+              const value = getNestedProperty(modelViewer, prop);
+              if (value && typeof value.traverse === 'function') {
+                console.log(`✓ Found traversable object at: ${prop}`);
+                processSceneAlternative(value);
+                break;
+              }
+            } catch (e) {
+              // プロパティアクセスエラーは無視
+            }
+          }
+          
+        } catch (error) {
+          console.error("Error in alternative approach:", error);
+        }
+      }
+      
+      // オブジェクトの全プロパティを再帰的に取得
+      function getAllProperties(obj, prefix = '', depth = 0, maxDepth = 3) {
+        const properties = [];
+        if (depth > maxDepth) return properties;
+        
+        try {
+          for (let key in obj) {
+            const fullPath = prefix ? `${prefix}.${key}` : key;
+            properties.push(fullPath);
+            
+            if (obj[key] && typeof obj[key] === 'object' && depth < maxDepth) {
+              properties.push(...getAllProperties(obj[key], fullPath, depth + 1, maxDepth));
+            }
+          }
+        } catch (e) {
+          // プロパティアクセスエラーは無視
+        }
+        
+        return properties;
+      }
+      
+      // ネストしたプロパティを安全に取得
+      function getNestedProperty(obj, path) {
+        return path.split('.').reduce((current, key) => {
+          return current && current[key] !== undefined ? current[key] : null;
+        }, obj);
+      }
+      
+      // 代替的なシーン処理
+      function processSceneAlternative(scene) {
+        console.log("🎯 Processing scene with alternative method");
+        
+        if (!scene || typeof scene.traverse !== 'function') {
+          console.log("Invalid scene for alternative processing");
+          return;
+        }
+        
+        let meshCount = 0;
+        
+        scene.traverse((node) => {
+          if (node.isMesh && node.material) {
+            meshCount++;
+            console.log(`🔧 Alternative processing mesh ${meshCount}:`, node.name || 'unnamed');
+            
+            const materials = Array.isArray(node.material) ? node.material : [node.material];
+            
+            materials.forEach((material, index) => {
+              if (material) {
+                // より強力なシェーダー置換
+                material.side = 2; // DoubleSide
+                
+                const originalOnBeforeCompile = material.onBeforeCompile;
+                material.onBeforeCompile = function(shader) {
+                  if (originalOnBeforeCompile) {
+                    originalOnBeforeCompile.call(this, shader);
+                  }
+                  
+                  // より確実なシェーダー置換
+                  if (shader.fragmentShader.includes('gl_FragColor')) {
+                    shader.fragmentShader = shader.fragmentShader.replace(
+                      /gl_FragColor\s*=\s*([^;]+);/g,
+                      `
+                      if (gl_FrontFacing) {
+                        gl_FragColor = $1;
+                      } else {
+                        gl_FragColor = vec4(1.0, 0.0, 0.0, ($1).a);
+                      }
+                      `
+                    );
+                  } else {
+                    // outputColorを使用している場合
+                    shader.fragmentShader = shader.fragmentShader.replace(
+                      '#include <output_fragment>',
+                      `
+                      #include <output_fragment>
+                      if (!gl_FrontFacing) {
+                        gl_FragColor = vec4(1.0, 0.0, 0.0, gl_FragColor.a);
+                      }
+                      `
+                    );
+                  }
+                  
+                  console.log(`🎨 Alternative shader compiled for material:`, material.name || index);
+                };
+                
+                material.needsUpdate = true;
+              }
+            });
+          }
+        });
+        
+        console.log(`🎉 Alternative approach processed ${meshCount} meshes`);
+      }
 
       // URLパラメータからモデルURLを取得
       function getModelUrlFromParams() {
@@ -689,8 +1271,31 @@ This project includes code from the following third-party libraries:
         if (modelUrl) {
           console.log("Loading model from URL parameter:", modelUrl);
           loadSampleModel(modelUrl);
+        } else {
+          // default.glbが存在しない場合のフォールバック
+          checkDefaultModel();
         }
       });
+
+      // default.glbの存在チェック
+      async function checkDefaultModel() {
+        try {
+          const response = await fetch('./default.glb', { method: 'HEAD' });
+          if (response.ok) {
+            // default.glbが存在する場合
+            console.log("Loading default.glb");
+            modelViewer.src = "./default.glb";
+          } else {
+            // default.glbが存在しない場合、Arweaveのモデルを使用
+            console.log("default.glb not found, using fallback model");
+            modelViewer.src = "https://arweave.net/ZFDOSKBnBnAlHx4olZjFEAQpPgO0UigLHrzXw-bds6k";
+          }
+        } catch (error) {
+          // ネットワークエラーまたはファイルが存在しない場合
+          console.log("default.glb not accessible, using fallback model");
+          modelViewer.src = "https://arweave.net/ZFDOSKBnBnAlHx4olZjFEAQpPgO0UigLHrzXw-bds6k";
+        }
+      }
 
       // 外部クリックでコントロールパネルを閉じる
       document.addEventListener("click", (e) => {

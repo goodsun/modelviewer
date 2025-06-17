@@ -828,25 +828,133 @@ This project includes code from the following third-party libraries:
                 // 両面表示
                 material.side = 2; // THREE.DoubleSide
                 
+                // テクスチャの平均色を計算してログ出力
+                console.log(`🎨 Material ${index} analysis:`);
+                console.log("Material type:", material.type);
+                console.log("Material name:", material.name || 'unnamed');
+                
+                if (material.color) {
+                  console.log("Base color:", {
+                    r: material.color.r,
+                    g: material.color.g, 
+                    b: material.color.b
+                  });
+                }
+                
+                if (material.map) {
+                  console.log("Has texture map:", !!material.map);
+                  console.log("Texture type:", material.map.constructor.name);
+                  
+                  if (material.map.image) {
+                    console.log("Texture image:", {
+                      width: material.map.image.width,
+                      height: material.map.image.height,
+                      complete: material.map.image.complete
+                    });
+                    
+                    // テクスチャの平均色を計算
+                    try {
+                      const avgColor = getTextureAverageColor(material.map);
+                      console.log("🌈 Texture average color:", {
+                        r: avgColor.x.toFixed(3),
+                        g: avgColor.y.toFixed(3),
+                        b: avgColor.z.toFixed(3),
+                        hex: `#${Math.round(avgColor.x * 255).toString(16).padStart(2, '0')}${Math.round(avgColor.y * 255).toString(16).padStart(2, '0')}${Math.round(avgColor.z * 255).toString(16).padStart(2, '0')}`
+                      });
+                    } catch (error) {
+                      console.log("❌ Failed to calculate texture average color:", error.message);
+                    }
+                  } else {
+                    console.log("No texture image available");
+                  }
+                } else {
+                  console.log("No texture map found");
+                }
+                
+                if (material.emissive) {
+                  console.log("Emissive color:", {
+                    r: material.emissive.r,
+                    g: material.emissive.g,
+                    b: material.emissive.b
+                  });
+                }
+                
+                console.log("---");
+                
+                // シェーダー修正前にマテリアル情報を詳細ログ出力
+                console.log(`📊 DETAILED Material ${index} Info:`);
+                console.log("Material object:", material);
+                console.log("Material keys:", Object.keys(material));
+                console.log("Material constructor:", material.constructor.name);
+                
+                // すべてのプロパティをログ出力
+                for (let prop in material) {
+                  try {
+                    const value = material[prop];
+                    if (prop === 'color' && value) {
+                      console.log(`  ${prop}:`, {r: value.r, g: value.g, b: value.b, hex: value.getHexString()});
+                    } else if (prop === 'map' && value) {
+                      console.log(`  ${prop}:`, value, value.image ? {width: value.image.width, height: value.image.height} : 'no image');
+                      
+                      // テクスチャ平均色を計算
+                      if (value.image) {
+                        try {
+                          const avgColor = getTextureAverageColor(value);
+                          console.log(`  🌈 TEXTURE AVERAGE COLOR:`, {
+                            r: avgColor.x.toFixed(3),
+                            g: avgColor.y.toFixed(3),
+                            b: avgColor.z.toFixed(3),
+                            hex: `#${Math.round(avgColor.x * 255).toString(16).padStart(2, '0')}${Math.round(avgColor.y * 255).toString(16).padStart(2, '0')}${Math.round(avgColor.z * 255).toString(16).padStart(2, '0')}`
+                          });
+                          
+                          // この色を保存して裏面色として使用
+                          material.userData = material.userData || {};
+                          material.userData.backfaceColor = avgColor;
+                          
+                        } catch (e) {
+                          console.log(`  ❌ Texture color calc failed:`, e.message);
+                        }
+                      }
+                    } else if (typeof value !== 'function' && value !== null) {
+                      console.log(`  ${prop}:`, typeof value, value);
+                    }
+                  } catch (e) {
+                    console.log(`  ${prop}: [access error]`);
+                  }
+                }
+                
                 // シェーダー修正
                 material.onBeforeCompile = function(shader) {
-                  console.log(`Modifying shader for material ${index}`);
+                  console.log(`🔧 Modifying shader for material ${index}`);
                   
-                  // フラグメントシェーダーに裏面色を追加
-                  shader.fragmentShader = shader.fragmentShader.replace(
-                    'void main() {',
-                    `
-                    void main() {
-                    `
-                  );
+                  // 保存された裏面色を取得（なければデフォルト色）
+                  let backColor = {x: 0.3, y: 0.3, z: 0.3}; // デフォルトのダークグレー
+                  
+                  if (material.userData && material.userData.backfaceColor) {
+                    const avgColor = material.userData.backfaceColor;
+                    // テクスチャ平均色を少し暗くして裏面用に調整
+                    backColor = {
+                      x: avgColor.x * 0.3,
+                      y: avgColor.y * 0.3,
+                      z: avgColor.z * 0.3
+                    };
+                    console.log(`Using texture-based backface color:`, {
+                      r: backColor.x.toFixed(3),
+                      g: backColor.y.toFixed(3),
+                      b: backColor.z.toFixed(3),
+                      hex: `#${Math.round(backColor.x * 255).toString(16).padStart(2, '0')}${Math.round(backColor.y * 255).toString(16).padStart(2, '0')}${Math.round(backColor.z * 255).toString(16).padStart(2, '0')}`
+                    });
+                  } else {
+                    console.log(`Using default backface color: dark gray`);
+                  }
                   
                   // 最終出力前に裏面チェック
                   shader.fragmentShader = shader.fragmentShader.replace(
                     /}\s*$/,
                     `
-                    // 裏面の場合は黒に変更
+                    // 裏面の場合はテクスチャベースの色で表示
                     if (!gl_FrontFacing) {
-                      gl_FragColor = vec4(0.0, 0.0, 0.0, gl_FragColor.a);
+                      gl_FragColor = vec4(${backColor.x.toFixed(3)}, ${backColor.y.toFixed(3)}, ${backColor.z.toFixed(3)}, gl_FragColor.a);
                     }
                     }
                     `
@@ -861,6 +969,173 @@ This project includes code from the following third-party libraries:
         });
         
         console.log(`🎉 Successfully processed ${meshCount} meshes in scene at ${path}`);
+      }
+      
+      // テクスチャの平均色を計算する関数
+      function calculateAverageColor(material) {
+        console.log("Calculating average color for material:", material.name || 'unnamed');
+        
+        // デフォルトの色（グレー）
+        let avgColor = {x: 0.5, y: 0.5, z: 0.5};
+        
+        try {
+          // マテリアルの色をチェック
+          if (material.color) {
+            avgColor.x = material.color.r;
+            avgColor.y = material.color.g;
+            avgColor.z = material.color.b;
+            console.log("Using material base color:", avgColor);
+          }
+          
+          // テクスチャがある場合の処理
+          if (material.map && material.map.image) {
+            try {
+              avgColor = getTextureAverageColor(material.map);
+              console.log("Calculated texture average color:", avgColor);
+            } catch (error) {
+              console.log("Failed to calculate texture color, using material color");
+            }
+          }
+          
+          // エミッシブカラーも考慮
+          if (material.emissive) {
+            avgColor.x = Math.max(avgColor.x, material.emissive.r * 0.3);
+            avgColor.y = Math.max(avgColor.y, material.emissive.g * 0.3);
+            avgColor.z = Math.max(avgColor.z, material.emissive.b * 0.3);
+          }
+          
+        } catch (error) {
+          console.log("Error calculating average color:", error);
+        }
+        
+        return avgColor;
+      }
+      
+      // テクスチャから平均色を計算
+      function getTextureAverageColor(texture) {
+        console.log("Processing texture:", texture);
+        console.log("Texture image:", texture.image);
+        console.log("Image type:", texture.image ? texture.image.constructor.name : 'no image');
+        
+        const image = texture.image;
+        if (!image) {
+          throw new Error("No texture image");
+        }
+        
+        // 画像の種類をチェック
+        let imageElement = null;
+        
+        if (image instanceof HTMLImageElement) {
+          imageElement = image;
+          console.log("Using HTMLImageElement");
+        } else if (image instanceof HTMLCanvasElement) {
+          imageElement = image;
+          console.log("Using HTMLCanvasElement");
+        } else if (image instanceof ImageBitmap) {
+          // ImageBitmapは直接drawImageで使用可能
+          imageElement = image;
+          console.log("Using ImageBitmap");
+        } else if (image.data && image.width && image.height) {
+          // ImageDataの場合、キャンバスに描画
+          const tempCanvas = document.createElement('canvas');
+          const tempCtx = tempCanvas.getContext('2d');
+          tempCanvas.width = image.width;
+          tempCanvas.height = image.height;
+          tempCtx.putImageData(image, 0, 0);
+          imageElement = tempCanvas;
+          console.log("Converted ImageData to canvas");
+        } else if (image.width && image.height && image.depth) {
+          // Three.jsの内部テクスチャ形式の可能性
+          console.log("Detected Three.js texture format, attempting conversion...");
+          
+          // テクスチャデータを直接読み取り
+          if (texture.source && texture.source.data) {
+            const data = texture.source.data;
+            console.log("Found texture source data:", data);
+            
+            // Uint8ArrayまたはFloat32Arrayの場合
+            if (data instanceof Uint8Array || data instanceof Float32Array) {
+              const tempCanvas = document.createElement('canvas');
+              const tempCtx = tempCanvas.getContext('2d');
+              tempCanvas.width = image.width;
+              tempCanvas.height = image.height;
+              
+              const imageData = tempCtx.createImageData(image.width, image.height);
+              
+              // データをImageDataに変換
+              for (let i = 0; i < data.length && i < imageData.data.length; i += 4) {
+                if (data instanceof Float32Array) {
+                  // Float32Arrayの場合は0-1を0-255に変換
+                  imageData.data[i] = Math.round(data[i] * 255);     // R
+                  imageData.data[i + 1] = Math.round(data[i + 1] * 255); // G
+                  imageData.data[i + 2] = Math.round(data[i + 2] * 255); // B
+                  imageData.data[i + 3] = data[i + 3] ? Math.round(data[i + 3] * 255) : 255; // A
+                } else {
+                  // Uint8Arrayの場合はそのまま
+                  imageData.data[i] = data[i];         // R
+                  imageData.data[i + 1] = data[i + 1]; // G
+                  imageData.data[i + 2] = data[i + 2]; // B
+                  imageData.data[i + 3] = data[i + 3] || 255; // A
+                }
+              }
+              
+              tempCtx.putImageData(imageData, 0, 0);
+              imageElement = tempCanvas;
+              console.log("Converted Three.js texture data to canvas");
+            }
+          }
+          
+          if (!imageElement) {
+            throw new Error("Could not convert Three.js texture format");
+          }
+        } else {
+          console.log("Unsupported image type:", image);
+          console.log("Image properties:", Object.keys(image));
+          throw new Error("Unsupported image type");
+        }
+        
+        console.log("Using image element:", imageElement);
+        console.log("Image dimensions:", imageElement.width, imageElement.height);
+        
+        // キャンバスを作成してテクスチャを描画
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        // 小さいサイズでサンプリング（パフォーマンス向上）
+        const sampleSize = 32;
+        canvas.width = sampleSize;
+        canvas.height = sampleSize;
+        
+        try {
+          // 画像をキャンバスに描画
+          ctx.drawImage(imageElement, 0, 0, sampleSize, sampleSize);
+          
+          // ピクセルデータを取得
+          const imageData = ctx.getImageData(0, 0, sampleSize, sampleSize);
+          const data = imageData.data;
+          
+          let r = 0, g = 0, b = 0;
+          let pixelCount = 0;
+          
+          // 全ピクセルの平均を計算
+          for (let i = 0; i < data.length; i += 4) {
+            r += data[i];     // Red
+            g += data[i + 1]; // Green
+            b += data[i + 2]; // Blue
+            pixelCount++;
+          }
+          
+          // 0-1の範囲に正規化（THREE.Vector3を使わずに普通のオブジェクトで返す）
+          return {
+            x: r / (pixelCount * 255),
+            y: g / (pixelCount * 255),
+            z: b / (pixelCount * 255)
+          };
+          
+        } catch (error) {
+          console.log("Canvas texture sampling failed:", error);
+          throw error;
+        }
       }
       
       // WebGLシェーダーを直接操作
@@ -886,22 +1161,47 @@ This project includes code from the following third-party libraries:
           const originalShaderSource = gl.shaderSource;
           gl.shaderSource = function(shader, source) {
             if (source.includes('gl_FragColor') && !source.includes('gl_FrontFacing')) {
-              console.log("Modifying fragment shader...");
-              source = source.replace(
-                /gl_FragColor\s*=\s*([^;]+);/g,
-                `
-                if (gl_FrontFacing) {
-                  gl_FragColor = $1;
-                } else {
-                  gl_FragColor = vec4(1.0, 0.0, 0.0, ($1).a);
-                }
-                `
-              );
+              console.log("🔧 Modifying fragment shader via WebGL injection...");
+              
+              // テクスチャサンプリングが含まれているかチェック
+              if (source.includes('texture2D') || source.includes('texture')) {
+                console.log("📸 Shader contains texture sampling");
+                
+                // テクスチャの平均色を推定（シェーダー内で）
+                source = source.replace(
+                  /gl_FragColor\s*=\s*([^;]+);/g,
+                  `
+                  vec4 originalColor = $1;
+                  if (gl_FrontFacing) {
+                    gl_FragColor = originalColor;
+                  } else {
+                    // テクスチャ色を基にした裏面色（少し暗くして単色っぽく）
+                    vec3 avgColor = originalColor.rgb;
+                    float luminance = dot(avgColor, vec3(0.299, 0.587, 0.114));
+                    vec3 backColor = mix(avgColor * 0.6, vec3(luminance * 0.8), 0.3);
+                    gl_FragColor = vec4(backColor, originalColor.a);
+                  }
+                  console.log("Applied texture-based backface color");
+                  `
+                );
+              } else {
+                console.log("🎨 Shader without texture, using solid color");
+                source = source.replace(
+                  /gl_FragColor\s*=\s*([^;]+);/g,
+                  `
+                  if (gl_FrontFacing) {
+                    gl_FragColor = $1;
+                  } else {
+                    gl_FragColor = vec4(0.4, 0.4, 0.4, ($1).a);
+                  }
+                  `
+                );
+              }
             }
             return originalShaderSource.call(this, shader, source);
           };
           
-          console.log("✓ WebGL shader override installed");
+          console.log("✓ WebGL shader override installed with texture analysis");
           
         } catch (error) {
           console.error("WebGL shader injection failed:", error);
@@ -1048,7 +1348,46 @@ This project includes code from the following third-party libraries:
           
           materials.forEach((material, index) => {
             if (material) {
-              console.log(`${indent}  Processing material ${index}:`, material.type);
+              console.log(`${indent}🎨 Manual Material ${index} analysis:`);
+              console.log(`${indent}  Type:`, material.type);
+              console.log(`${indent}  Name:`, material.name || 'unnamed');
+              
+              // 基本色をチェック
+              if (material.color) {
+                console.log(`${indent}  Base color:`, {
+                  r: material.color.r.toFixed(3),
+                  g: material.color.g.toFixed(3), 
+                  b: material.color.b.toFixed(3),
+                  hex: `#${Math.round(material.color.r * 255).toString(16).padStart(2, '0')}${Math.round(material.color.g * 255).toString(16).padStart(2, '0')}${Math.round(material.color.b * 255).toString(16).padStart(2, '0')}`
+                });
+              }
+              
+              // テクスチャをチェック
+              if (material.map) {
+                console.log(`${indent}  Has texture map:`, !!material.map);
+                if (material.map.image) {
+                  console.log(`${indent}  Texture image:`, {
+                    width: material.map.image.width,
+                    height: material.map.image.height,
+                    complete: material.map.image.complete
+                  });
+                  
+                  // テクスチャの平均色を計算
+                  try {
+                    const avgColor = getTextureAverageColor(material.map);
+                    console.log(`${indent}  🌈 Texture average color:`, {
+                      r: avgColor.x.toFixed(3),
+                      g: avgColor.y.toFixed(3),
+                      b: avgColor.z.toFixed(3),
+                      hex: `#${Math.round(avgColor.x * 255).toString(16).padStart(2, '0')}${Math.round(avgColor.y * 255).toString(16).padStart(2, '0')}${Math.round(avgColor.z * 255).toString(16).padStart(2, '0')}`
+                    });
+                  } catch (error) {
+                    console.log(`${indent}  ❌ Failed to calculate texture average color:`, error.message);
+                  }
+                }
+              } else {
+                console.log(`${indent}  No texture map`);
+              }
               
               // 両面表示を有効にする
               material.side = 2; // THREE.DoubleSide
@@ -1063,7 +1402,7 @@ This project includes code from the following third-party libraries:
                   #include <output_fragment>
                   
                   if ( !gl_FrontFacing ) {
-                    gl_FragColor = vec4( 1.0, 0.0, 0.0, gl_FragColor.a );
+                    gl_FragColor = vec4( 0.4, 0.4, 0.4, gl_FragColor.a );
                   }
                   `
                 );

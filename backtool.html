@@ -1,0 +1,1037 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Backface Color Tool - 裏面色付けツール</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/OBJLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/PLYLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/exporters/GLTFExporter.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/exporters/OBJExporter.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #333;
+            overflow: hidden;
+        }
+
+        .container {
+            display: flex;
+            height: 100vh;
+        }
+
+        .sidebar {
+            width: 300px;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-right: 1px solid rgba(255, 255, 255, 0.2);
+            overflow-y: auto;
+            box-shadow: 2px 0 20px rgba(0, 0, 0, 0.1);
+        }
+
+        .main-content {
+            flex: 1;
+            position: relative;
+            background: #000;
+        }
+
+        .header {
+            padding: 20px;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .header h1 {
+            font-size: 18px;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 5px;
+        }
+
+        .header p {
+            font-size: 12px;
+            color: #666;
+            line-height: 1.4;
+        }
+
+        .section {
+            padding: 20px;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+        }
+
+        .section-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .file-input-wrapper {
+            position: relative;
+            margin-bottom: 15px;
+        }
+
+        .file-input {
+            display: none;
+        }
+
+        .file-input-button {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            width: 100%;
+            padding: 12px;
+            border: 2px dashed #007bff;
+            border-radius: 8px;
+            background: rgba(0, 123, 255, 0.05);
+            color: #007bff;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .file-input-button:hover {
+            background: rgba(0, 123, 255, 0.1);
+            border-color: #0056b3;
+        }
+
+        .color-picker-group {
+            margin-bottom: 20px;
+        }
+
+        .color-picker-label {
+            display: block;
+            font-size: 12px;
+            font-weight: 500;
+            color: #555;
+            margin-bottom: 8px;
+        }
+
+        .color-picker-wrapper {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .color-picker {
+            width: 50px;
+            height: 35px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        .color-value {
+            flex: 1;
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 12px;
+            font-family: monospace;
+            background: white;
+        }
+
+        .slider-group {
+            margin-bottom: 20px;
+        }
+
+        .slider-label {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .slider-label span {
+            font-size: 12px;
+            font-weight: 500;
+            color: #555;
+        }
+
+        .slider-value {
+            font-size: 12px;
+            color: #007bff;
+            font-weight: 600;
+        }
+
+        .slider {
+            width: 100%;
+            height: 6px;
+            border-radius: 3px;
+            background: #e9ecef;
+            outline: none;
+            -webkit-appearance: none;
+        }
+
+        .slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: #007bff;
+            cursor: pointer;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+        }
+
+        .button {
+            width: 100%;
+            padding: 12px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-bottom: 10px;
+        }
+
+        .button-primary {
+            background: #007bff;
+            color: white;
+        }
+
+        .button-primary:hover {
+            background: #0056b3;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(0, 123, 255, 0.3);
+        }
+
+        .button-secondary {
+            background: #6c757d;
+            color: white;
+        }
+
+        .button-secondary:hover {
+            background: #545b62;
+        }
+
+        .button-success {
+            background: #28a745;
+            color: white;
+        }
+
+        .button-success:hover {
+            background: #1e7e34;
+        }
+
+        .viewer {
+            width: 100%;
+            height: 100%;
+            position: relative;
+        }
+
+        .loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-size: 14px;
+            z-index: 10;
+        }
+
+        .info-panel {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            font-size: 12px;
+            max-width: 300px;
+            line-height: 1.4;
+        }
+
+        .status-indicator {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+
+        .status-ready { background: #28a745; }
+        .status-processing { background: #ffc107; }
+        .status-error { background: #dc3545; }
+
+        .preset-colors {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 8px;
+            margin-top: 10px;
+        }
+
+        .preset-color {
+            width: 30px;
+            height: 30px;
+            border-radius: 6px;
+            cursor: pointer;
+            border: 2px solid transparent;
+            transition: all 0.2s ease;
+        }
+
+        .preset-color:hover {
+            transform: scale(1.1);
+            border-color: #007bff;
+        }
+
+        .model-info {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 6px;
+            padding: 12px;
+            margin-top: 10px;
+            font-size: 11px;
+            color: #666;
+            line-height: 1.3;
+        }
+
+        .icon {
+            width: 16px;
+            height: 16px;
+            fill: currentColor;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="sidebar">
+            <div class="header">
+                <h1>🎨 Backface Color Tool</h1>
+                <p>3Dモデルのポリゴン裏側に色を付けてダウンロードできるツールです</p>
+            </div>
+
+            <div class="section">
+                <div class="section-title">
+                    <svg class="icon" viewBox="0 0 24 24">
+                        <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z"/>
+                    </svg>
+                    ファイル読み込み
+                </div>
+                
+                <div class="file-input-wrapper">
+                    <input type="file" id="fileInput" class="file-input" accept=".glb,.gltf,.obj,.ply" multiple>
+                    <label for="fileInput" class="file-input-button">
+                        <svg class="icon" viewBox="0 0 24 24">
+                            <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z"/>
+                        </svg>
+                        3Dモデルを選択
+                    </label>
+                </div>
+
+                <div class="model-info" id="modelInfo" style="display: none;">
+                    <strong>モデル情報:</strong><br>
+                    <span id="modelDetails"></span>
+                </div>
+            </div>
+
+            <div class="section">
+                <div class="section-title">
+                    <svg class="icon" viewBox="0 0 24 24">
+                        <path d="M12,18.5L10,16.5L8.5,18L12,21.5L22,11.5L20.5,10L12,18.5M4,11H0V13H4V11M0,17H4V15H0V17M0,5H4V7H0V5Z"/>
+                    </svg>
+                    裏面カラー設定
+                </div>
+
+                <div class="color-picker-group">
+                    <label class="color-picker-label">裏面の色</label>
+                    <div class="color-picker-wrapper">
+                        <input type="color" id="backfaceColor" class="color-picker" value="#ff0000">
+                        <input type="text" id="colorValue" class="color-value" value="#ff0000" readonly>
+                    </div>
+                </div>
+
+                <div class="preset-colors">
+                    <div class="preset-color" style="background: #ff0000;" data-color="#ff0000" title="赤"></div>
+                    <div class="preset-color" style="background: #00ff00;" data-color="#00ff00" title="緑"></div>
+                    <div class="preset-color" style="background: #0000ff;" data-color="#0000ff" title="青"></div>
+                    <div class="preset-color" style="background: #ffff00;" data-color="#ffff00" title="黄"></div>
+                    <div class="preset-color" style="background: #ff00ff;" data-color="#ff00ff" title="マゼンタ"></div>
+                    <div class="preset-color" style="background: #00ffff;" data-color="#00ffff" title="シアン"></div>
+                    <div class="preset-color" style="background: #ffffff;" data-color="#ffffff" title="白"></div>
+                    <div class="preset-color" style="background: #808080;" data-color="#808080" title="グレー"></div>
+                    <div class="preset-color" style="background: #000000;" data-color="#000000" title="黒"></div>
+                    <div class="preset-color" style="background: #ffa500;" data-color="#ffa500" title="オレンジ"></div>
+                </div>
+
+                <div class="slider-group">
+                    <div class="slider-label">
+                        <span>不透明度</span>
+                        <span class="slider-value" id="opacityValue">100%</span>
+                    </div>
+                    <input type="range" id="opacitySlider" class="slider" min="0" max="100" value="100">
+                </div>
+            </div>
+
+            <div class="section">
+                <div class="section-title">
+                    <svg class="icon" viewBox="0 0 24 24">
+                        <path d="M5,20H19V18H5M19,9H15V3H9V9H5L12,16L19,9Z"/>
+                    </svg>
+                    エクスポート
+                </div>
+
+                <button class="button button-primary" id="applyBackface">
+                    <span class="status-indicator status-ready"></span>
+                    裏面色を適用
+                </button>
+
+                <button class="button button-success" id="downloadGLB" disabled>
+                    📁 GLB形式でダウンロード
+                </button>
+
+                <button class="button button-secondary" id="resetModel">
+                    🔄 モデルをリセット
+                </button>
+            </div>
+        </div>
+
+        <div class="main-content">
+            <div class="viewer" id="viewer">
+                <div class="loading" id="loading" style="display: none;">
+                    Loading...
+                </div>
+            </div>
+
+            <div class="info-panel">
+                <strong>操作方法:</strong><br>
+                • マウスドラッグ: 回転<br>
+                • スクロール: ズーム<br>
+                • 右クリック+ドラッグ: パン<br>
+                <br>
+                <strong>入力形式:</strong> GLB, GLTF, OBJ, PLY<br>
+                <strong>出力形式:</strong> GLB (バイナリGLTF)
+            </div>
+        </div>
+    </div>
+
+    <script>
+        class BackfaceColorTool {
+            constructor() {
+                this.scene = null;
+                this.camera = null;
+                this.renderer = null;
+                this.controls = null;
+                this.currentModel = null;
+                this.originalMaterials = new Map();
+                
+                this.init();
+                this.setupEventListeners();
+            }
+
+            init() {
+                // Three.js シーンの初期化
+                this.scene = new THREE.Scene();
+                this.scene.background = new THREE.Color(0x222222);
+
+                // カメラの設定
+                this.camera = new THREE.PerspectiveCamera(
+                    75,
+                    window.innerWidth / window.innerHeight,
+                    0.1,
+                    1000
+                );
+                this.camera.position.set(0, 0, 5);
+
+                // レンダラーの設定
+                this.renderer = new THREE.WebGLRenderer({ antialias: true });
+                this.renderer.setSize(window.innerWidth - 300, window.innerHeight);
+                this.renderer.shadowMap.enabled = true;
+                this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+                
+                document.getElementById('viewer').appendChild(this.renderer.domElement);
+
+                // コントロールの設定
+                this.controls = new THREE.OrbitControls(this.camera, this.renderer.domElement);
+                this.controls.enableDamping = true;
+                this.controls.dampingFactor = 0.25;
+                this.controls.enableZoom = true;
+
+                // ライトの設定
+                this.setupLights();
+
+                // アニメーションループの開始
+                this.animate();
+
+                // リサイズイベント
+                window.addEventListener('resize', () => this.onWindowResize());
+            }
+
+            setupLights() {
+                // 環境光
+                const ambientLight = new THREE.AmbientLight(0x404040, 0.6);
+                this.scene.add(ambientLight);
+
+                // 指向性ライト
+                const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+                directionalLight.position.set(10, 10, 5);
+                directionalLight.castShadow = true;
+                directionalLight.shadow.mapSize.width = 2048;
+                directionalLight.shadow.mapSize.height = 2048;
+                this.scene.add(directionalLight);
+
+                // 補助ライト
+                const fillLight = new THREE.DirectionalLight(0xffffff, 0.3);
+                fillLight.position.set(-10, -10, -5);
+                this.scene.add(fillLight);
+            }
+
+            setupEventListeners() {
+                // ファイル入力
+                document.getElementById('fileInput').addEventListener('change', (e) => {
+                    this.handleFileInput(e);
+                });
+
+                // カラーピッカー
+                document.getElementById('backfaceColor').addEventListener('change', (e) => {
+                    document.getElementById('colorValue').value = e.target.value;
+                });
+
+                // プリセットカラー
+                document.querySelectorAll('.preset-color').forEach(preset => {
+                    preset.addEventListener('click', (e) => {
+                        const color = e.target.getAttribute('data-color');
+                        document.getElementById('backfaceColor').value = color;
+                        document.getElementById('colorValue').value = color;
+                    });
+                });
+
+                // 不透明度スライダー
+                document.getElementById('opacitySlider').addEventListener('input', (e) => {
+                    document.getElementById('opacityValue').textContent = e.target.value + '%';
+                });
+
+                // ボタン
+                document.getElementById('applyBackface').addEventListener('click', () => {
+                    this.applyBackfaceColor();
+                });
+
+                document.getElementById('downloadGLB').addEventListener('click', () => {
+                    this.downloadGLB();
+                });
+
+                document.getElementById('resetModel').addEventListener('click', () => {
+                    this.resetModel();
+                });
+            }
+
+            handleFileInput(event) {
+                const files = event.target.files;
+                if (files.length === 0) return;
+
+                const file = files[0];
+                this.loadModel(file);
+            }
+
+            loadModel(file) {
+                this.showLoading(true);
+                
+                const fileName = file.name.toLowerCase();
+                const reader = new FileReader();
+
+                reader.onload = (e) => {
+                    const data = e.target.result;
+                    
+                    if (fileName.endsWith('.glb') || fileName.endsWith('.gltf')) {
+                        this.loadGLTF(data, fileName);
+                    } else if (fileName.endsWith('.obj')) {
+                        this.loadOBJ(data);
+                    } else if (fileName.endsWith('.ply')) {
+                        this.loadPLY(data);
+                    }
+                };
+
+                if (fileName.endsWith('.glb')) {
+                    reader.readAsArrayBuffer(file);
+                } else {
+                    reader.readAsText(file);
+                }
+            }
+
+            loadGLTF(data, fileName) {
+                const loader = new THREE.GLTFLoader();
+                
+                loader.parse(data, '', (gltf) => {
+                    this.setModel(gltf.scene, fileName);
+                }, (error) => {
+                    console.error('GLTF loading error:', error);
+                    this.showLoading(false);
+                });
+            }
+
+            loadOBJ(data) {
+                const loader = new THREE.OBJLoader();
+                
+                try {
+                    const object = loader.parse(data);
+                    this.setModel(object, 'OBJ Model');
+                } catch (error) {
+                    console.error('OBJ loading error:', error);
+                    this.showLoading(false);
+                }
+            }
+
+            loadPLY(data) {
+                const loader = new THREE.PLYLoader();
+                
+                try {
+                    const geometry = loader.parse(data);
+                    const material = new THREE.MeshLambertMaterial({ color: 0x888888 });
+                    const mesh = new THREE.Mesh(geometry, material);
+                    
+                    const object = new THREE.Object3D();
+                    object.add(mesh);
+                    
+                    this.setModel(object, 'PLY Model');
+                } catch (error) {
+                    console.error('PLY loading error:', error);
+                    this.showLoading(false);
+                }
+            }
+
+            setModel(model, fileName) {
+                // 既存のモデルを削除
+                if (this.currentModel) {
+                    this.scene.remove(this.currentModel);
+                }
+
+                this.currentModel = model;
+                this.originalMaterials.clear();
+
+                // マテリアルを安全に保存
+                this.currentModel.traverse((child) => {
+                    if (child.isMesh && child.material) {
+                        console.log(`Saving original material for mesh: ${child.name || 'unnamed'}`);
+                        console.log(`Material type: ${Array.isArray(child.material) ? 'Array' : child.material.type}`);
+                        
+                        if (Array.isArray(child.material)) {
+                            // 複数マテリアルの場合
+                            const clonedMaterials = child.material.map((mat, index) => {
+                                console.log(`  Cloning material ${index}: ${mat.type}`);
+                                return this.deepCloneMaterial(mat);
+                            });
+                            this.originalMaterials.set(child.uuid, clonedMaterials);
+                        } else {
+                            // 単一マテリアルの場合
+                            console.log(`  Cloning single material: ${child.material.type}`);
+                            this.originalMaterials.set(child.uuid, this.deepCloneMaterial(child.material));
+                        }
+                    }
+                });
+
+                // モデルをシーンに追加
+                this.scene.add(this.currentModel);
+
+                // モデルのバウンディングボックスを計算してカメラを調整
+                this.fitCameraToModel();
+
+                // UI更新
+                this.updateModelInfo(fileName);
+                this.showLoading(false);
+                
+                // ダウンロードボタンを有効化
+                document.getElementById('downloadGLB').disabled = false;
+                
+                console.log(`Model loaded successfully. Saved ${this.originalMaterials.size} material sets.`);
+            }
+
+            // 完全なマテリアルクローン（テクスチャ含む）
+            deepCloneMaterial(originalMaterial) {
+                console.log('Deep cloning material:', originalMaterial.type, originalMaterial.name || 'unnamed');
+                
+                // マテリアルをクローン
+                const clonedMaterial = originalMaterial.clone();
+                
+                // すべてのテクスチャマップを保持
+                const textureProperties = [
+                    'map', 'normalMap', 'roughnessMap', 'metalnessMap', 
+                    'emissiveMap', 'aoMap', 'lightMap', 'bumpMap', 
+                    'displacementMap', 'alphaMap', 'envMap'
+                ];
+                
+                textureProperties.forEach(prop => {
+                    if (originalMaterial[prop]) {
+                        clonedMaterial[prop] = originalMaterial[prop];
+                        console.log(`  Preserved ${prop}`);
+                    }
+                });
+                
+                // カラープロパティも完全に保持
+                if (originalMaterial.color) {
+                    clonedMaterial.color = originalMaterial.color.clone();
+                }
+                
+                if (originalMaterial.emissive) {
+                    clonedMaterial.emissive = originalMaterial.emissive.clone();
+                }
+                
+                if (originalMaterial.specular) {
+                    clonedMaterial.specular = originalMaterial.specular.clone();
+                }
+                
+                // 数値プロパティも保持
+                const numericProperties = [
+                    'transparent', 'opacity', 'alphaTest', 'roughness', 'metalness',
+                    'shininess', 'reflectivity', 'refractionRatio', 'wireframe',
+                    'flatShading', 'side', 'shadowSide', 'colorWrite', 'precision',
+                    'alphaWrite', 'premultipliedAlpha', 'dithering', 'vertexColors'
+                ];
+                
+                numericProperties.forEach(prop => {
+                    if (originalMaterial[prop] !== undefined) {
+                        clonedMaterial[prop] = originalMaterial[prop];
+                    }
+                });
+                
+                console.log('Material deep cloned successfully with all properties preserved');
+                
+                return clonedMaterial;
+            }
+
+            fitCameraToModel() {
+                if (!this.currentModel) return;
+
+                const box = new THREE.Box3().setFromObject(this.currentModel);
+                const size = box.getSize(new THREE.Vector3());
+                const center = box.getCenter(new THREE.Vector3());
+
+                const maxDim = Math.max(size.x, size.y, size.z);
+                const distance = maxDim * 1.5;
+
+                this.camera.position.set(center.x, center.y, center.z + distance);
+                this.controls.target.copy(center);
+                this.controls.update();
+            }
+
+            updateModelInfo(fileName) {
+                if (!this.currentModel) return;
+
+                let meshCount = 0;
+                let vertexCount = 0;
+                let faceCount = 0;
+
+                this.currentModel.traverse((child) => {
+                    if (child.isMesh) {
+                        meshCount++;
+                        if (child.geometry) {
+                            const positions = child.geometry.attributes.position;
+                            if (positions) {
+                                vertexCount += positions.count;
+                            }
+                            
+                            if (child.geometry.index) {
+                                faceCount += child.geometry.index.count / 3;
+                            } else if (positions) {
+                                faceCount += positions.count / 3;
+                            }
+                        }
+                    }
+                });
+
+                const info = `
+                    ファイル名: ${fileName}<br>
+                    メッシュ数: ${meshCount}<br>
+                    頂点数: ${vertexCount.toLocaleString()}<br>
+                    面数: ${Math.floor(faceCount).toLocaleString()}
+                `;
+
+                document.getElementById('modelDetails').innerHTML = info;
+                document.getElementById('modelInfo').style.display = 'block';
+            }
+
+            applyBackfaceColor() {
+                if (!this.currentModel) {
+                    alert('まず3Dモデルを読み込んでください。');
+                    return;
+                }
+
+                const colorHex = document.getElementById('backfaceColor').value;
+                const opacity = document.getElementById('opacitySlider').value / 100;
+                const color = new THREE.Color(colorHex);
+
+                console.log('Applying backface color:', colorHex, 'opacity:', opacity);
+
+                let processedCount = 0;
+
+                this.currentModel.traverse((child) => {
+                    if (child.isMesh && child.material) {
+                        processedCount++;
+                        
+                        // オリジナルマテリアルを保存（まだ保存されていない場合）
+                        if (!this.originalMaterials.has(child.uuid)) {
+                            if (Array.isArray(child.material)) {
+                                this.originalMaterials.set(child.uuid, child.material.map(mat => mat.clone()));
+                            } else {
+                                this.originalMaterials.set(child.uuid, child.material.clone());
+                            }
+                        }
+
+                        // より安全なマテリアル複製処理
+                        let newMaterial;
+                        if (Array.isArray(child.material)) {
+                            newMaterial = child.material.map(mat => this.cloneMaterialSafely(mat));
+                        } else {
+                            newMaterial = this.cloneMaterialSafely(child.material);
+                        }
+
+                        const materials = Array.isArray(newMaterial) ? newMaterial : [newMaterial];
+
+                        materials.forEach((mat, index) => {
+                            // 両面レンダリングを有効化
+                            mat.side = THREE.DoubleSide;
+
+                            // カスタムシェーダーで裏面に色をつける
+                            const originalOnBeforeCompile = mat.onBeforeCompile;
+                            
+                            mat.onBeforeCompile = (shader, renderer) => {
+                                // 元のonBeforeCompileがあれば実行
+                                if (originalOnBeforeCompile && typeof originalOnBeforeCompile === 'function') {
+                                    originalOnBeforeCompile.call(mat, shader, renderer);
+                                }
+
+                                // フラグメントシェーダーのカスタマイズ
+                                if (!shader.fragmentShader.includes('BACKFACE_COLOR_APPLIED')) {
+                                    // シェーダーの最終出力段階で裏面色を適用
+                                    shader.fragmentShader = shader.fragmentShader.replace(
+                                        /gl_FragColor\s*=\s*([^;]+);(\s*})?\s*$/m,
+                                        `
+                                        vec4 finalColor = $1;
+                                        
+                                        // 裏面の場合は指定された色を適用
+                                        if (!gl_FrontFacing) {
+                                            // テクスチャがある場合は混合、ない場合は完全に置き換え
+                                            vec3 backfaceColor = vec3(${color.r.toFixed(3)}, ${color.g.toFixed(3)}, ${color.b.toFixed(3)});
+                                            float backfaceOpacity = ${opacity.toFixed(3)};
+                                            
+                                            // テクスチャの明度を計算して、それをベースに裏面色を調整
+                                            float luminance = dot(finalColor.rgb, vec3(0.299, 0.587, 0.114));
+                                            vec3 adjustedBackfaceColor = mix(backfaceColor * 0.5, backfaceColor, luminance);
+                                            
+                                            finalColor = vec4(adjustedBackfaceColor, finalColor.a * backfaceOpacity);
+                                        }
+                                        
+                                        gl_FragColor = finalColor;
+                                        // BACKFACE_COLOR_APPLIED
+                                        $2
+                                        `
+                                    );
+                                    
+                                    console.log(`Applied custom shader to material ${index} of mesh ${child.name || 'unnamed'}`);
+                                }
+                            };
+
+                            mat.needsUpdate = true;
+                        });
+
+                        child.material = newMaterial;
+                        
+                        console.log(`Processed mesh: ${child.name || 'unnamed'}, materials: ${materials.length}`);
+                    }
+                });
+
+                console.log(`Processed ${processedCount} meshes with backface coloring`);
+                
+                // ステータス更新
+                const button = document.getElementById('applyBackface');
+                const indicator = button.querySelector('.status-indicator');
+                indicator.className = 'status-indicator status-processing';
+                button.innerHTML = '<span class="status-indicator status-processing"></span>処理中...';
+                
+                setTimeout(() => {
+                    indicator.className = 'status-indicator status-ready';
+                    button.innerHTML = '<span class="status-indicator status-ready"></span>裏面色を適用';
+                }, 1000);
+            }
+
+            // より安全なマテリアルクローン処理
+            cloneMaterialSafely(originalMaterial) {
+                console.log('Cloning material:', originalMaterial.type, originalMaterial.name || 'unnamed');
+                
+                // マテリアルをクローン
+                const clonedMaterial = originalMaterial.clone();
+                
+                // 重要なプロパティを明示的にコピー
+                if (originalMaterial.map) {
+                    clonedMaterial.map = originalMaterial.map;
+                    console.log('Preserved diffuse map');
+                }
+                
+                if (originalMaterial.normalMap) {
+                    clonedMaterial.normalMap = originalMaterial.normalMap;
+                    console.log('Preserved normal map');
+                }
+                
+                if (originalMaterial.roughnessMap) {
+                    clonedMaterial.roughnessMap = originalMaterial.roughnessMap;
+                    console.log('Preserved roughness map');
+                }
+                
+                if (originalMaterial.metalnessMap) {
+                    clonedMaterial.metalnessMap = originalMaterial.metalnessMap;
+                    console.log('Preserved metalness map');
+                }
+                
+                if (originalMaterial.emissiveMap) {
+                    clonedMaterial.emissiveMap = originalMaterial.emissiveMap;
+                    console.log('Preserved emissive map');
+                }
+                
+                if (originalMaterial.aoMap) {
+                    clonedMaterial.aoMap = originalMaterial.aoMap;
+                    console.log('Preserved AO map');
+                }
+                
+                // カラープロパティも保持
+                if (originalMaterial.color) {
+                    clonedMaterial.color.copy(originalMaterial.color);
+                }
+                
+                if (originalMaterial.emissive) {
+                    clonedMaterial.emissive.copy(originalMaterial.emissive);
+                }
+                
+                // その他の重要なプロパティ
+                clonedMaterial.transparent = originalMaterial.transparent;
+                clonedMaterial.opacity = originalMaterial.opacity;
+                clonedMaterial.alphaTest = originalMaterial.alphaTest;
+                
+                if (originalMaterial.roughness !== undefined) {
+                    clonedMaterial.roughness = originalMaterial.roughness;
+                }
+                
+                if (originalMaterial.metalness !== undefined) {
+                    clonedMaterial.metalness = originalMaterial.metalness;
+                }
+                
+                console.log('Material cloned successfully with all textures preserved');
+                
+                return clonedMaterial;
+            }
+
+            resetModel() {
+                if (!this.currentModel || this.originalMaterials.size === 0) {
+                    console.log('No model or original materials to reset');
+                    return;
+                }
+
+                console.log('Resetting model to original materials...');
+                let restoredCount = 0;
+
+                // オリジナルのマテリアルに戻す
+                this.currentModel.traverse((child) => {
+                    if (child.isMesh && child.material) {
+                        const originalMaterial = this.originalMaterials.get(child.uuid);
+                        if (originalMaterial) {
+                            if (Array.isArray(originalMaterial)) {
+                                // 複数マテリアルの場合
+                                child.material = originalMaterial.map(mat => this.deepCloneMaterial(mat));
+                                console.log(`Restored ${originalMaterial.length} materials for mesh: ${child.name || 'unnamed'}`);
+                            } else {
+                                // 単一マテリアルの場合
+                                child.material = this.deepCloneMaterial(originalMaterial);
+                                console.log(`Restored material for mesh: ${child.name || 'unnamed'}`);
+                            }
+                            restoredCount++;
+                        } else {
+                            console.warn(`No original material found for mesh: ${child.name || 'unnamed'}`);
+                        }
+                    }
+                });
+
+                console.log(`Model reset completed. Restored ${restoredCount} mesh materials.`);
+                
+                // ステータス更新
+                const button = document.getElementById('applyBackface');
+                const indicator = button.querySelector('.status-indicator');
+                indicator.className = 'status-indicator status-ready';
+                button.innerHTML = '<span class="status-indicator status-ready"></span>裏面色を適用';
+            }
+
+            downloadGLB() {
+                if (!this.currentModel) {
+                    alert('ダウンロードするモデルがありません。');
+                    return;
+                }
+
+                console.log('Starting GLB export...');
+                
+                // ステータス更新
+                const button = document.getElementById('downloadGLB');
+                const originalText = button.innerHTML;
+                button.innerHTML = '📁 エクスポート中...';
+                button.disabled = true;
+
+                const exporter = new THREE.GLTFExporter();
+                
+                exporter.parse(this.currentModel, (result) => {
+                    console.log('GLB export completed');
+                    
+                    const blob = new Blob([result], { type: 'application/octet-stream' });
+                    this.downloadBlob(blob, 'model_with_backface.glb');
+                    
+                    // ボタンを元に戻す
+                    button.innerHTML = originalText;
+                    button.disabled = false;
+                    
+                }, {
+                    binary: true,
+                    includeCustomExtensions: true,
+                    embedImages: true,
+                    animations: [],
+                    onlyVisible: true
+                });
+            }
+
+            downloadBlob(blob, filename) {
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = filename;
+                a.style.display = 'none';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            }
+
+            showLoading(show) {
+                document.getElementById('loading').style.display = show ? 'block' : 'none';
+            }
+
+            animate() {
+                requestAnimationFrame(() => this.animate());
+                
+                this.controls.update();
+                this.renderer.render(this.scene, this.camera);
+            }
+
+            onWindowResize() {
+                this.camera.aspect = (window.innerWidth - 300) / window.innerHeight;
+                this.camera.updateProjectionMatrix();
+                this.renderer.setSize(window.innerWidth - 300, window.innerHeight);
+            }
+        }
+
+        // アプリケーション初期化
+        document.addEventListener('DOMContentLoaded', () => {
+            new BackfaceColorTool();
+        });
+    </script>
+</body>
+</html>

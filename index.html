@@ -29,7 +29,7 @@ This project includes code from the following third-party libraries:
 1. **lit (by Google LLC)**
    License: BSD 3-Clause
 
-   Copyright 2017 Google LLC  
+   Copyright 2017 Google LLC
    SPDX-License-Identifier: BSD-3-Clause
 
    https://github.com/lit/lit/blob/main/LICENSE
@@ -37,7 +37,7 @@ This project includes code from the following third-party libraries:
 2. **Three.js**
    License: MIT License
 
-   Copyright 2010-2024 Three.js Authors  
+   Copyright 2010-2024 Three.js Authors
    SPDX-License-Identifier: MIT
 
 
@@ -361,9 +361,11 @@ This project includes code from the following third-party libraries:
         background-color: #007bff;
         color: white;
         text-decoration: none;
+        border: none;
         border-radius: 6px;
         font-size: 14px;
         font-weight: 500;
+        cursor: pointer;
         transition: background-color 0.2s;
       }
 
@@ -530,7 +532,7 @@ This project includes code from the following third-party libraries:
       modelViewer.addEventListener("load", () => {
         console.log("Model loaded successfully");
         updateBackgroundColor();
-        
+
         // 裏面に色をつける - 複数のアプローチを順次試行
         setTimeout(() => {
           addBackfaceColorSimple();
@@ -538,47 +540,90 @@ This project includes code from the following third-party libraries:
       });
 
       modelViewer.addEventListener("error", (event) => {
-        console.error("Model loading error:", event.detail);
+        console.error("🚨 Model loading error detected:", event.detail);
+        console.error("🚨 Current model src:", modelViewer.src);
+        console.error("🚨 Error event object:", event);
+        
         customProgressBar.style.display = "none";
 
         // エラー表示
         let errorMsg = "Failed to load 3D model";
         if (event.detail) {
           if (event.detail.type === "loadfailure") {
-            errorMsg = "Model file is corrupted or incompatible";
+            // sourceErrorをチェックしてより詳細なエラーメッセージを生成
+            if (event.detail.sourceError) {
+              const sourceError = event.detail.sourceError;
+              console.error("🚨 Source error:", sourceError);
+              
+              // TypeError: Failed to fetchはCORSまたはネットワークエラー
+              if (sourceError.message && sourceError.message.includes("Failed to fetch")) {
+                errorMsg = "Network error or CORS policy blocked the request";
+                console.error("🚨 CORS/Network error detected");
+              } else if (
+                sourceError.message &&
+                sourceError.message.includes("Invalid typed array length")
+              ) {
+                errorMsg = "Model file is too large for browser memory";
+              } else if (
+                sourceError.message &&
+                sourceError.message.includes("texture")
+              ) {
+                errorMsg = "Failed to load model textures";
+              } else if (
+                sourceError.message &&
+                sourceError.message.includes("scene")
+              ) {
+                errorMsg = "Model file is corrupted or incompatible format";
+              } else {
+                errorMsg = `Model loading failed: ${sourceError.message || "Unknown error"}`;
+              }
+            } else {
+              errorMsg = "Model file is corrupted or incompatible";
+              console.error("🚨 Load failure detected without source error");
+            }
           } else if (event.detail.sourceError) {
             const sourceError = event.detail.sourceError;
-            if (
-              sourceError.message &&
-              sourceError.message.includes("Invalid typed array length")
-            ) {
-              errorMsg = "Model file is too large for browser memory";
-            } else if (
-              sourceError.message &&
-              sourceError.message.includes("texture")
-            ) {
-              errorMsg = "Failed to load model textures";
-            }
+            console.error("🚨 Source error without loadfailure:", sourceError);
+            errorMsg = `Model loading error: ${sourceError.message || "Unknown error"}`;
           }
         }
 
+        console.error("🚨 Final error message:", errorMsg);
+        console.error("🚨 Model URL:", modelViewer.src);
         showError(errorMsg, modelViewer.src);
       });
 
+      // タイムアウト監視を追加
+      let loadingTimeout;
+      
       modelViewer.addEventListener("progress", (event) => {
         const progress = event.detail.totalProgress;
-        console.log(`Loading progress: ${(progress * 100).toFixed(1)}%`);
+        console.log(`📊 Loading progress: ${(progress * 100).toFixed(1)}%`);
 
         progressBarFill.style.width = `${progress * 100}%`;
         progressPercent.textContent = `${Math.round(progress * 100)}%`;
 
+        // タイムアウトをリセット
+        clearTimeout(loadingTimeout);
+        
+        // 進行が止まった場合のタイムアウト（30秒）
+        loadingTimeout = setTimeout(() => {
+          console.error("🚨 Loading timeout detected - no progress for 30 seconds");
+          if (progress < 1.0) {
+            console.error("🚨 Calling showError due to timeout");
+            showError("Loading timed out - possible network or memory issue", modelViewer.src);
+          }
+        }, 30000);
+
         // 100%になったら即座に非表示
         if (progress >= 1.0) {
           customProgressBar.style.display = "none";
+          clearTimeout(loadingTimeout);
         } else {
           customProgressBar.style.display = "flex";
         }
       });
+
 
       // スライダーイベント
       exposureSlider.addEventListener("input", (e) => {
@@ -648,26 +693,175 @@ This project includes code from the following third-party libraries:
       // サンプルモデル読み込み
       function loadSampleModel(url) {
         console.log("Loading model:", url);
+        
+        // URLの検証
+        if (!isValidModelUrl(url)) {
+          showError("Invalid model URL or unsupported file format", url);
+          return;
+        }
+        
         modelViewer.src = url;
         customProgressBar.style.display = "flex";
         clearError();
+      }
+      
+      // モデルURLの検証
+      function isValidModelUrl(url) {
+        try {
+          const urlObj = new URL(url);
+          const pathname = urlObj.pathname.toLowerCase();
+          
+          // 対応している拡張子をチェック
+          const validExtensions = ['.glb', '.gltf'];
+          const hasValidExtension = validExtensions.some(ext => pathname.endsWith(ext));
+          
+          if (!hasValidExtension) {
+            console.error("🚨 Invalid file extension. Supported formats: .glb, .gltf");
+            return false;
+          }
+          
+          // プロトコルのチェック
+          if (!['http:', 'https:'].includes(urlObj.protocol)) {
+            console.error("🚨 Invalid protocol. Only HTTP/HTTPS is supported");
+            return false;
+          }
+          
+          return true;
+        } catch (e) {
+          console.error("🚨 Invalid URL:", e);
+          return false;
+        }
+      }
+
+      // メモリ・ストレージ容量をチェック
+      function checkMemoryAndStorage() {
+        const issues = [];
+        
+        // 利用可能メモリの推定
+        if (navigator.deviceMemory && navigator.deviceMemory < 4) {
+          issues.push('デバイスメモリが不足している可能性があります');
+        }
+        
+        // ローカルストレージ容量チェック
+        try {
+          const testKey = 'storage_test_' + Date.now();
+          const testData = 'x'.repeat(1024 * 1024); // 1MBのテストデータ
+          localStorage.setItem(testKey, testData);
+          localStorage.removeItem(testKey);
+        } catch (e) {
+          if (e.name === 'QuotaExceededError') {
+            issues.push('ローカルストレージの容量が不足しています');
+          }
+        }
+        
+        // ヒープメモリ使用量チェック（Chrome限定）
+        if (performance.memory) {
+          const memoryRatio = performance.memory.usedJSHeapSize / performance.memory.jsHeapSizeLimit;
+          if (memoryRatio > 0.8) {
+            issues.push('ブラウザのメモリ使用量が高すぎます');
+          }
+        }
+        
+        return issues;
+      }
+      
+      // ローカルストレージとキャッシュをクリア
+      function clearStorageAndReload() {
+        try {
+          // ローカルストレージクリア
+          localStorage.clear();
+          
+          // セッションストレージクリア
+          sessionStorage.clear();
+          
+          // IndexedDBもクリア（可能であれば）
+          if ('indexedDB' in window) {
+            indexedDB.databases().then(databases => {
+              databases.forEach(db => {
+                indexedDB.deleteDatabase(db.name);
+              });
+            }).catch(() => {
+              console.log('IndexedDB clear failed (may not be supported)');
+            });
+          }
+          
+          // キャッシュAPIクリア（Service Worker使用時）
+          if ('caches' in window) {
+            caches.keys().then(names => {
+              names.forEach(name => {
+                caches.delete(name);
+              });
+            });
+          }
+          
+          console.log('Storage cleared successfully');
+          
+          // 2秒後にページを再読み込み
+          setTimeout(() => {
+            window.location.reload(true);
+          }, 2000);
+          
+          return true;
+        } catch (error) {
+          console.error('Storage clear failed:', error);
+          return false;
+        }
       }
 
       // エラー表示
       function showError(message, modelUrl) {
         const container = document.querySelector(".container");
-        const viewerUrl = `/index.html?src=${encodeURIComponent(
-          modelUrl
-        )}`;
+        const isInWebView = detectWebView();
+        const memoryIssues = checkMemoryAndStorage();
+        
+        // メモリ・ストレージ問題がある場合の特別対応
+        let storageActions = '';
+        if (memoryIssues.length > 0) {
+          storageActions = `
+            <div style="margin: 15px 0; padding: 10px; background: rgba(255, 193, 7, 0.1); border-left: 3px solid #ffc107; border-radius: 4px;">
+              <p style="font-size: 12px; color: #856404; margin: 0 0 8px 0;"><strong>検出された問題:</strong></p>
+              ${memoryIssues.map(issue => `<p style="font-size: 11px; color: #856404; margin: 2px 0;">• ${issue}</p>`).join('')}
+            </div>
+            <button onclick="clearStorageAndReload()" class="viewer-link" style="background: #ffc107; color: #000; margin-bottom: 8px;">
+              🗑️ ストレージをクリアして再読み込み
+            </button>
+          `;
+        }
+        
+        // WebView内かどうかに応じてボタンの表示を変更
+        let buttonContent = '';
+        let helpMessage = '';
+        
+        if (isInWebView) {
+          buttonContent = `
+            <button onclick="openInDefaultBrowser('${modelUrl}')" class="viewer-link">
+              📋 URLをコピーして標準ブラウザで開く
+            </button>
+          `;
+          helpMessage = 'このアプリ内ブラウザでは3D表示に制限があります。標準ブラウザ（Chrome、Safari等）で開いてください。';
+        } else {
+          buttonContent = `
+            <button onclick="window.location.reload()" class="viewer-link">
+              🔄 ページを再読み込み
+            </button>
+          `;
+          helpMessage = 'ブラウザのメモリ不足またはローカルストレージの問題が原因の可能性があります。';
+        }
+        
         container.innerHTML = `
                 <div class="error-display">
                     <div class="error-icon">⚠️</div>
                     <div class="error-text">
-                        <p class="error-title">3D Model Error</p>
+                        <p class="error-title">3D Model Loading Error</p>
                         <p class="error-message">${message}</p>
-                        <a href="${viewerUrl}" target="_blank" rel="noopener noreferrer" class="viewer-link">
-                            Display Standalone Viewer
-                        </a>
+                        <p class="error-message" style="font-size: 12px; color: #888; margin-top: 10px;">
+                          ${helpMessage}
+                        </p>
+                        ${storageActions}
+                        ${buttonContent}
+                        ${!isInWebView ? `<button onclick="clearStorageAndReload()" class="viewer-link" style="background: #6c757d; margin-top: 5px;">
+                          🏠 ストレージクリア後ホームに戻る
+                        </button>` : ''}
                     </div>
                 </div>
             `;
@@ -676,584 +870,391 @@ This project includes code from the following third-party libraries:
       function clearError() {
         // エラー表示をクリア（必要に応じて実装）
       }
-      
-      // シンプルなアプローチで裏面に色をつける
+
+      // WebView環境の検出（シンプル版）
+      function detectWebView() {
+        const userAgent = navigator.userAgent;
+        
+        // 主要なWebViewパターンのみ
+        const webViewPatterns = [
+          /wv/i,           // Android WebView
+          /WebView/i,      // 汎用WebView
+          /FBAN|FBAV/i,   // Facebook内ブラウザ
+          /Line/i,         // LINE内ブラウザ
+          /Instagram/i,    // Instagram内ブラウザ
+          /Twitter/i       // Twitter内ブラウザ
+        ];
+        
+        return webViewPatterns.some(pattern => pattern.test(userAgent));
+      }
+
+      // 標準ブラウザでURLを開く
+      function openInDefaultBrowser(modelUrl) {
+        const currentUrl = window.location.href;
+        const baseUrl = currentUrl.split('?')[0];
+        const fullUrl = `${baseUrl}?src=${encodeURIComponent(modelUrl)}`;
+        
+        console.log('Attempting to open in default browser:', fullUrl);
+        
+        // まずクリップボードにコピーを試行
+        copyToClipboardAndNotify(fullUrl);
+      }
+
+      // クリップボードにコピーしてユーザーに通知
+      function copyToClipboardAndNotify(url) {
+        console.log('Copying to clipboard:', url);
+        
+        // 複数の方法でクリップボードコピーを試行
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          // 最新のClipboard API
+          navigator.clipboard.writeText(url).then(() => {
+            console.log('Copied using Clipboard API');
+            showCopySuccessAlert(url);
+          }).catch(() => {
+            console.log('Clipboard API failed, trying fallback');
+            fallbackCopyToClipboard(url);
+          });
+        } else {
+          // フォールバック方法
+          fallbackCopyToClipboard(url);
+        }
+      }
+
+      // フォールバック方法でクリップボードにコピー
+      function fallbackCopyToClipboard(url) {
+        try {
+          // 方法1: document.execCommand（古いブラウザ対応）
+          const textArea = document.createElement('textarea');
+          textArea.value = url;
+          textArea.style.position = 'fixed';
+          textArea.style.left = '-999999px';
+          textArea.style.top = '-999999px';
+          document.body.appendChild(textArea);
+          textArea.select();
+          textArea.setSelectionRange(0, 99999);
+          
+          const successful = document.execCommand('copy');
+          document.body.removeChild(textArea);
+          
+          if (successful) {
+            console.log('Copied using execCommand');
+            showCopySuccessAlert(url);
+          } else {
+            console.log('execCommand failed, showing prompt');
+            showManualCopyPrompt(url);
+          }
+        } catch (error) {
+          console.log('execCommand error:', error);
+          showManualCopyPrompt(url);
+        }
+      }
+
+      // コピー成功時のアラート表示
+      function showCopySuccessAlert(url) {
+        alert(`URLをクリップボードにコピーしました！\n標準ブラウザ（Chrome、Safari等）で貼り付けて開いてください。\n\nコピーされたURL:\n${url}`);
+      }
+
+      // 手動コピー用のプロンプト表示（無限ループ防止）
+      function showManualCopyPrompt(url) {
+        const userChoice = confirm(
+          '自動コピーに失敗しました。\n\n' +
+          '以下の方法で対処できます：\n' +
+          '• OK: URLを表示してマニュアルコピー\n' +
+          '• キャンセル: そのまま終了\n\n' +
+          'URL: ' + url
+        );
+        
+        if (userChoice) {
+          // URLを表示するだけで、再試行はしない
+          alert(
+            'URLをコピーして標準ブラウザで開いてください：\n\n' + url + 
+            '\n\n※このURLを選択してコピー（Ctrl+C / Cmd+C）してください'
+          );
+        }
+      }
+
+      // シンプルな裏面グレー着色機能
       function addBackfaceColorSimple() {
-        console.log("🎯 Starting simple backface color approach...");
-        
-        // CSS/WebGLでのグローバルアプローチ
-        try {
-          // 1. CSSでのアプローチ（制限はあるが試してみる）
-          const style = document.createElement('style');
-          style.textContent = `
-            model-viewer {
-              --model-viewer-backface-color: #ff0000;
-            }
-          `;
-          document.head.appendChild(style);
-          console.log("✓ CSS backface style added");
-          
-        } catch (error) {
-          console.log("CSS approach failed:", error);
-        }
-        
-        // 2. model-viewerのイベントとAPIを使用
-        modelViewer.addEventListener('model-visibility', () => {
-          console.log("Model visibility changed, trying direct access...");
-          tryDirectAccess();
-        });
-        
-        // 3. 強制的にシーンを探す
-        tryDirectAccess();
-        
-        // 4. WebGLシェーダーを直接操作
+        console.log("🎯 Starting backface gray coloring...");
+
+        // モデル読み込み完了まで少し待つ
         setTimeout(() => {
-          injectWebGLShader();
-        }, 1000);
-      }
-      
-      // 直接アクセスを試行
-      function tryDirectAccess() {
-        console.log("🔍 Trying direct access methods...");
-        
-        // Model-viewerの内部プロパティを直接確認
-        console.log("ModelViewer properties:", Object.getOwnPropertyNames(modelViewer));
-        
-        // Symbolプロパティも確認
-        const symbols = Object.getOwnPropertySymbols(modelViewer);
-        console.log("ModelViewer symbols:", symbols);
-        
-        // 各Symbolプロパティを確認
-        symbols.forEach((symbol, index) => {
-          try {
-            const value = modelViewer[symbol];
-            console.log(`Symbol ${index} (${symbol.toString()}):`, typeof value, value);
+          console.log("Checking model availability...");
+          console.log("modelViewer.model:", modelViewer.model);
+          console.log("modelViewer properties:", Object.keys(modelViewer));
+          
+          // 複数の方法でモデルにアクセス
+          let model = null;
+          
+          if (modelViewer.model) {
+            model = modelViewer.model;
+            console.log("✓ Found model via modelViewer.model");
+          } else {
+            // model-viewerの内部を探索
+            console.log("⚠️ modelViewer.model not available, searching alternatives...");
             
-            // Three.jsオブジェクトっぽいものを探す
-            if (value && typeof value === 'object') {
-              if (value.scene || value.model || (value.children && value.children.length > 0)) {
-                console.log("Found potential scene in symbol property:", symbol.toString());
-                processAnyObject(value, `Symbol[${symbol.toString()}]`);
-              }
-            }
-          } catch (e) {
-            console.log(`Cannot access symbol ${index}:`, e.message);
-          }
-        });
-        
-        // プロトタイプチェーンも確認
-        let proto = Object.getPrototypeOf(modelViewer);
-        let depth = 0;
-        while (proto && depth < 5) {
-          console.log(`Prototype ${depth}:`, proto.constructor.name);
-          const protoProps = Object.getOwnPropertyNames(proto);
-          protoProps.forEach(prop => {
-            if (prop.includes('scene') || prop.includes('model') || prop.includes('three')) {
-              console.log(`Found potential property in prototype: ${prop}`);
-              try {
-                const value = modelViewer[prop];
-                if (value && typeof value === 'object') {
-                  processAnyObject(value, prop);
-                }
-              } catch (e) {
-                console.log(`Cannot access ${prop}:`, e.message);
-              }
-            }
-          });
-          proto = Object.getPrototypeOf(proto);
-          depth++;
-        }
-      }
-      
-      // 任意のオブジェクトを処理
-      function processAnyObject(obj, path) {
-        console.log(`🔧 Processing object at ${path}:`, obj);
-        
-        if (!obj) return;
-        
-        // Three.jsオブジェクトかチェック
-        if (obj.traverse && typeof obj.traverse === 'function') {
-          console.log(`✓ Found traversable object at ${path}`);
-          processThreeScene(obj, path);
-          return;
-        }
-        
-        // 子要素やプロパティを探す
-        if (obj.scene && obj.scene.traverse) {
-          console.log(`✓ Found scene at ${path}.scene`);
-          processThreeScene(obj.scene, `${path}.scene`);
-          return;
-        }
-        
-        if (obj.model && obj.model.traverse) {
-          console.log(`✓ Found model at ${path}.model`);
-          processThreeScene(obj.model, `${path}.model`);
-          return;
-        }
-        
-        // 配列やオブジェクトの中も探す
-        if (obj.children && Array.isArray(obj.children)) {
-          obj.children.forEach((child, index) => {
-            if (child && typeof child === 'object') {
-              processAnyObject(child, `${path}.children[${index}]`);
-            }
-          });
-        }
-        
-        // その他のプロパティも浅く探す
-        for (let key in obj) {
-          if (key !== 'children' && obj[key] && typeof obj[key] === 'object') {
-            if (obj[key].traverse || obj[key].scene || obj[key].model) {
-              processAnyObject(obj[key], `${path}.${key}`);
-            }
-          }
-        }
-      }
-      
-      // Three.jsシーンを処理
-      function processThreeScene(scene, path) {
-        console.log(`🎨 Processing Three.js scene at ${path}`);
-        
-        let meshCount = 0;
-        
-        scene.traverse((node) => {
-          if (node.isMesh && node.material) {
-            meshCount++;
-            console.log(`Processing mesh ${meshCount}: ${node.name || 'unnamed'}`);
-            
-            const materials = Array.isArray(node.material) ? node.material : [node.material];
-            
-            materials.forEach((material, index) => {
-              if (material) {
-                // 両面表示
-                material.side = 2; // THREE.DoubleSide
-                
-                // シェーダー修正
-                material.onBeforeCompile = function(shader) {
-                  console.log(`Modifying shader for material ${index}`);
-                  
-                  // フラグメントシェーダーに裏面色を追加
-                  shader.fragmentShader = shader.fragmentShader.replace(
-                    'void main() {',
-                    `
-                    void main() {
-                    `
-                  );
-                  
-                  // 最終出力前に裏面チェック
-                  shader.fragmentShader = shader.fragmentShader.replace(
-                    /}\s*$/,
-                    `
-                    // 裏面の場合は黒に変更
-                    if (!gl_FrontFacing) {
-                      gl_FragColor = vec4(0.0, 0.0, 0.0, gl_FragColor.a);
+            // Shadow DOMから探す
+            const shadowRoot = modelViewer.shadowRoot;
+            if (shadowRoot) {
+              console.log("Found shadow root, searching for Three.js scene...");
+              
+              // 可能性のある内部プロパティを探す
+              for (let key in modelViewer) {
+                try {
+                  const value = modelViewer[key];
+                  if (value && typeof value === 'object') {
+                    console.log(`Checking modelViewer.${key}:`, typeof value, value?.constructor?.name);
+                    
+                    if (value.scene || value.model || (value.children && value.traverse)) {
+                      model = value;
+                      console.log(`✓ Found model via modelViewer.${key}`);
+                      break;
                     }
-                    }
-                    `
-                  );
-                };
-                
-                material.needsUpdate = true;
-                console.log(`✓ Material ${index} processed for backface coloring`);
-              }
-            });
-          }
-        });
-        
-        console.log(`🎉 Successfully processed ${meshCount} meshes in scene at ${path}`);
-      }
-      
-      // WebGLシェーダーを直接操作
-      function injectWebGLShader() {
-        console.log("🎮 Attempting WebGL shader injection...");
-        
-        try {
-          const canvas = modelViewer.shadowRoot?.querySelector('canvas');
-          if (!canvas) {
-            console.log("No canvas found for WebGL injection");
-            return;
-          }
-          
-          const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
-          if (!gl) {
-            console.log("No WebGL context found");
-            return;
-          }
-          
-          console.log("WebGL context acquired, attempting shader override...");
-          
-          // WebGLの関数をオーバーライド（実験的）
-          const originalShaderSource = gl.shaderSource;
-          gl.shaderSource = function(shader, source) {
-            if (source.includes('gl_FragColor') && !source.includes('gl_FrontFacing')) {
-              console.log("Modifying fragment shader...");
-              source = source.replace(
-                /gl_FragColor\s*=\s*([^;]+);/g,
-                `
-                if (gl_FrontFacing) {
-                  gl_FragColor = $1;
-                } else {
-                  gl_FragColor = vec4(1.0, 0.0, 0.0, ($1).a);
+                  }
+                } catch (e) {
+                  // アクセスエラーは無視
                 }
-                `
-              );
+              }
             }
-            return originalShaderSource.call(this, shader, source);
-          };
+          }
           
-          console.log("✓ WebGL shader override installed");
-          
-        } catch (error) {
-          console.error("WebGL shader injection failed:", error);
-        }
+          if (model) {
+            processModelForBackface(model);
+          } else {
+            console.log("❌ No model found, retrying in 2 seconds...");
+            setTimeout(() => addBackfaceColorSimple(), 2000);
+          }
+        }, 500);
       }
-      
-      // 裏面に色をつける関数
-      async function addBackfaceColor() {
-        console.log("Starting backface color application...");
+
+      // モデルの裏面をグレーに着色
+      function processModelForBackface(model) {
+        console.log("Processing model for backface gray coloring...");
+        console.log("Model object:", model);
+        console.log("Model properties:", Object.keys(model));
+        console.log("Model constructor:", model.constructor.name);
         
-        try {
-          // model-viewerが完全に読み込まれるまで待機
-          await modelViewer.updateComplete;
+        let scene = null;
+        
+        // より詳細にシーンを探す
+        if (model.scene && typeof model.scene.traverse === 'function') {
+          scene = model.scene;
+          console.log("✓ Found scene via model.scene");
+        } else if (model.children && typeof model.traverse === 'function') {
+          scene = model;
+          console.log("✓ Using model directly as scene");
+        } else {
+          console.log("⚠️ Standard scene access failed, searching deeper...");
           
-          if (!modelViewer.model) {
-            console.log("Model not available yet, retrying...");
-            setTimeout(() => addBackfaceColor(), 300);
-            return;
-          }
+          // Symbolプロパティを探索
+          const symbols = Object.getOwnPropertySymbols(model);
+          console.log(`Found ${symbols.length} symbol properties:`, symbols.map(s => s.toString()));
           
-          const model = modelViewer.model;
-          console.log("Model object:", model);
-          console.log("Model constructor:", model.constructor.name);
-          console.log("Model keys:", Object.keys(model));
-          console.log("Model type:", model.type);
-          
-          // プロパティを詳細に調査
-          for (let key in model) {
-            if (model.hasOwnProperty(key)) {
-              console.log(`model.${key}:`, typeof model[key], model[key]);
-            }
-          }
-          
-          // 可能性のあるシーンアクセス方法を全て試す
-          let scene = null;
-          
-          // 方法1: 直接sceneプロパティ
-          if (model.scene && typeof model.scene.traverse === 'function') {
-            scene = model.scene;
-            console.log("✓ Found scene via model.scene");
-          }
-          // 方法2: scenesプロパティ
-          else if (model.scenes && model.scenes.length > 0 && typeof model.scenes[0].traverse === 'function') {
-            scene = model.scenes[0];
-            console.log("✓ Found scene via model.scenes[0]");
-          }
-          // 方法3: モデル自体がシーンの場合
-          else if (model.children && typeof model.traverse === 'function') {
-            scene = model;
-            console.log("✓ Using model directly as scene");
-          }
-          // 方法4: nodeプロパティ
-          else if (model.node && typeof model.node.traverse === 'function') {
-            scene = model.node;
-            console.log("✓ Found scene via model.node");
-          }
-          // 方法5: rootプロパティ
-          else if (model.root && typeof model.root.traverse === 'function') {
-            scene = model.root;
-            console.log("✓ Found scene via model.root");
-          }
-          // 方法6: 他の可能性
-          else {
-            console.log("Checking all properties for traverse method...");
-            for (let key in model) {
-              if (model[key] && typeof model[key].traverse === 'function') {
-                scene = model[key];
-                console.log(`✓ Found scene via model.${key}`);
+          for (let symbol of symbols) {
+            try {
+              const value = model[symbol];
+              console.log(`Checking model[${symbol.toString()}]:`, typeof value, value?.constructor?.name);
+              
+              if (value && typeof value === 'object' && value.traverse && typeof value.traverse === 'function') {
+                scene = value;
+                console.log(`✓ Found scene via model[${symbol.toString()}]`);
                 break;
               }
+              
+              // 配列の場合、各要素をチェック
+              if (Array.isArray(value)) {
+                console.log(`  Array with ${value.length} elements`);
+                for (let i = 0; i < value.length; i++) {
+                  const element = value[i];
+                  console.log(`    Element [${i}]:`, typeof element, element?.constructor?.name);
+                  
+                  if (element && typeof element === 'object') {
+                    // 要素の詳細を表示
+                    console.log(`    Element [${i}] keys:`, Object.keys(element));
+                    console.log(`    Element [${i}] symbols:`, Object.getOwnPropertySymbols(element).map(s => s.toString()));
+                    
+                    // traverseメソッドを持つか確認
+                    if (element.traverse && typeof element.traverse === 'function') {
+                      scene = element;
+                      console.log(`✓ Found scene via model[${symbol.toString()}][${i}]`);
+                      break;
+                    }
+                    
+                    // Three.jsのシーンオブジェクトを探す
+                    if (element.scene && element.scene.traverse) {
+                      scene = element.scene;
+                      console.log(`✓ Found scene via model[${symbol.toString()}][${i}].scene`);
+                      break;
+                    }
+                    
+                    // 一般的なThree.jsオブジェクトのプロパティをチェック
+                    const threeJsProps = ['children', 'parent', 'geometry', 'material', 'matrix', 'position', 'rotation', 'scale'];
+                    for (let prop of threeJsProps) {
+                      if (element[prop] !== undefined) {
+                        console.log(`    Element [${i}] has Three.js property: ${prop}`);
+                        
+                        // childrenプロパティがあり、traverseメソッドもある場合
+                        if (prop === 'children' && element.traverse && typeof element.traverse === 'function') {
+                          scene = element;
+                          console.log(`✓ Found Three.js object with traverse via model[${symbol.toString()}][${i}]`);
+                          break;
+                        }
+                      }
+                    }
+                    if (scene) break;
+                    
+                    // 要素のプロパティも再帰的に探す
+                    for (let key in element) {
+                      try {
+                        const nestedValue = element[key];
+                        if (nestedValue && typeof nestedValue === 'object' && nestedValue.traverse && typeof nestedValue.traverse === 'function') {
+                          scene = nestedValue;
+                          console.log(`✓ Found scene via model[${symbol.toString()}][${i}].${key}`);
+                          break;
+                        }
+                      } catch (e) {
+                        // アクセスエラーは無視
+                      }
+                    }
+                    if (scene) break;
+                  }
+                }
+                if (scene) break;
+              }
+              
+              // ネストしたオブジェクトも探す
+              if (value && typeof value === 'object') {
+                // 通常のプロパティ
+                for (let nestedKey in value) {
+                  try {
+                    const nestedValue = value[nestedKey];
+                    if (nestedValue && typeof nestedValue === 'object' && nestedValue.traverse && typeof nestedValue.traverse === 'function') {
+                      scene = nestedValue;
+                      console.log(`✓ Found scene via model[${symbol.toString()}].${nestedKey}`);
+                      break;
+                    }
+                  } catch (e) {
+                    // アクセスエラーは無視
+                  }
+                }
+                if (scene) break;
+                
+                // Symbolプロパティも探す
+                const nestedSymbols = Object.getOwnPropertySymbols(value);
+                for (let nestedSymbol of nestedSymbols) {
+                  try {
+                    const nestedValue = value[nestedSymbol];
+                    if (nestedValue && typeof nestedValue === 'object' && nestedValue.traverse && typeof nestedValue.traverse === 'function') {
+                      scene = nestedValue;
+                      console.log(`✓ Found scene via model[${symbol.toString()}][${nestedSymbol.toString()}]`);
+                      break;
+                    }
+                  } catch (e) {
+                    // アクセスエラーは無視
+                  }
+                }
+                if (scene) break;
+              }
+            } catch (e) {
+              console.log(`Cannot access model[${symbol.toString()}]:`, e.message);
             }
           }
           
           if (!scene) {
-            console.error("❌ No traversable scene found in model");
-            console.log("Attempting manual processing...");
-            processNodeManually(model);
+            console.log("❌ No traversable scene found after symbol search");
             return;
           }
-          
-          console.log("Scene object:", scene);
-          console.log("Scene type:", scene.type);
-          console.log("Scene children:", scene.children ? scene.children.length : 'none');
-          
-          let processedCount = 0;
-          
-          scene.traverse((node) => {
-            if (node.isMesh && node.material) {
-              processedCount++;
-              console.log(`Processing mesh ${processedCount}:`, node.name || 'unnamed');
-              
-              const materials = Array.isArray(node.material) ? node.material : [node.material];
-              
-              materials.forEach((material, index) => {
-                if (material) {
-                  console.log(`Processing material ${index}:`, material.type);
-                  
-                  // 両面表示を有効にする
-                  material.side = 2; // THREE.DoubleSide
-                  
-                  // カスタムシェーダーで裏面に色をつける
-                  material.onBeforeCompile = function(shader) {
-                    console.log("Compiling shader for material:", material.name || index);
-                    
-                    shader.fragmentShader = shader.fragmentShader.replace(
-                      '#include <output_fragment>',
-                      `
-                      #include <output_fragment>
-                      
-                      if ( !gl_FrontFacing ) {
-                        gl_FragColor = vec4( 1.0, 0.0, 0.0, gl_FragColor.a );
-                      }
-                      `
-                    );
-                  };
-                  
-                  material.needsUpdate = true;
-                  console.log(`✓ Material ${index} processed`);
-                }
-              });
-            }
-          });
-          
-          console.log(`✅ Successfully processed ${processedCount} meshes`);
-          
-        } catch (error) {
-          console.error("❌ Error in addBackfaceColor:", error);
         }
-      }
-      
-      // 手動でノードを処理する関数
-      function processNodeManually(node, depth = 0) {
-        const indent = "  ".repeat(depth);
-        console.log(`${indent}Processing node:`, node.constructor.name, node.type || 'unknown', node.name || 'unnamed');
-        
-        let processedCount = 0;
-        
-        // メッシュかどうかチェック
-        if (node.isMesh && node.material) {
-          processedCount++;
-          console.log(`${indent}✓ Found mesh:`, node.name || 'unnamed');
-          
-          const materials = Array.isArray(node.material) ? node.material : [node.material];
-          
-          materials.forEach((material, index) => {
-            if (material) {
-              console.log(`${indent}  Processing material ${index}:`, material.type);
-              
-              // 両面表示を有効にする
-              material.side = 2; // THREE.DoubleSide
-              
-              // カスタムシェーダーで裏面に色をつける
-              material.onBeforeCompile = function(shader) {
-                console.log(`${indent}  Compiling shader for material:`, material.name || index);
-                
-                shader.fragmentShader = shader.fragmentShader.replace(
-                  '#include <output_fragment>',
-                  `
-                  #include <output_fragment>
-                  
-                  if ( !gl_FrontFacing ) {
-                    gl_FragColor = vec4( 1.0, 0.0, 0.0, gl_FragColor.a );
-                  }
-                  `
-                );
-              };
-              
-              material.needsUpdate = true;
-              console.log(`${indent}  ✓ Material ${index} processed`);
-            }
-          });
-        }
-        
-        // 子ノードを再帰的に処理
-        if (node.children && node.children.length > 0) {
-          console.log(`${indent}Found ${node.children.length} children`);
-          for (let i = 0; i < node.children.length; i++) {
-            const child = node.children[i];
-            const childProcessed = processNodeManually(child, depth + 1);
-            processedCount += childProcessed;
-          }
-        }
-        
-        // オブジェクトの他のプロパティもチェック
-        for (let key in node) {
-          if (key !== 'children' && node[key] && typeof node[key] === 'object' && node[key].constructor && node[key].constructor.name) {
-            if (node[key].isMesh || (node[key].children && node[key].children.length > 0)) {
-              console.log(`${indent}Checking property ${key}:`, node[key].constructor.name);
-              const propProcessed = processNodeManually(node[key], depth + 1);
-              processedCount += propProcessed;
-            }
-          }
-        }
-        
-        if (depth === 0) {
-          console.log(`✅ Manual processing complete. Processed ${processedCount} meshes total.`);
-        }
-        
-        return processedCount;
-      }
-      
-      // 代替アプローチ：Three.jsレンダラーに直接アクセス
-      function tryAlternativeApproach() {
-        console.log("🔄 Trying alternative approach...");
-        
-        try {
-          // Shadow DOMからcanvasを取得
-          const shadowRoot = modelViewer.shadowRoot;
-          if (!shadowRoot) {
-            console.log("No shadow root found");
-            return;
-          }
-          
-          const canvas = shadowRoot.querySelector('canvas');
-          if (!canvas) {
-            console.log("No canvas found in shadow root");
-            return;
-          }
-          
-          console.log("Canvas found:", canvas);
-          
-          // WebGLレンダリングコンテキストを取得
-          const gl = canvas.getContext('webgl') || canvas.getContext('webgl2');
-          if (!gl) {
-            console.log("No WebGL context found");
-            return;
-          }
-          
-          console.log("WebGL context found");
-          
-          // model-viewerの内部APIを使用（実験的）
-          if (modelViewer.model && modelViewer.model.scene) {
-            console.log("✓ Found scene via model.scene in alternative approach");
-            processSceneAlternative(modelViewer.model.scene);
-            return;
-          }
-          
-          // より深いレベルでのアクセスを試行
-          const allProperties = getAllProperties(modelViewer);
-          console.log("All model-viewer properties:", allProperties);
-          
-          // Three.jsのシーンを探す
-          for (let prop of allProperties) {
-            try {
-              const value = getNestedProperty(modelViewer, prop);
-              if (value && typeof value.traverse === 'function') {
-                console.log(`✓ Found traversable object at: ${prop}`);
-                processSceneAlternative(value);
-                break;
-              }
-            } catch (e) {
-              // プロパティアクセスエラーは無視
-            }
-          }
-          
-        } catch (error) {
-          console.error("Error in alternative approach:", error);
-        }
-      }
-      
-      // オブジェクトの全プロパティを再帰的に取得
-      function getAllProperties(obj, prefix = '', depth = 0, maxDepth = 3) {
-        const properties = [];
-        if (depth > maxDepth) return properties;
-        
-        try {
-          for (let key in obj) {
-            const fullPath = prefix ? `${prefix}.${key}` : key;
-            properties.push(fullPath);
-            
-            if (obj[key] && typeof obj[key] === 'object' && depth < maxDepth) {
-              properties.push(...getAllProperties(obj[key], fullPath, depth + 1, maxDepth));
-            }
-          }
-        } catch (e) {
-          // プロパティアクセスエラーは無視
-        }
-        
-        return properties;
-      }
-      
-      // ネストしたプロパティを安全に取得
-      function getNestedProperty(obj, path) {
-        return path.split('.').reduce((current, key) => {
-          return current && current[key] !== undefined ? current[key] : null;
-        }, obj);
-      }
-      
-      // 代替的なシーン処理
-      function processSceneAlternative(scene) {
-        console.log("🎯 Processing scene with alternative method");
-        
-        if (!scene || typeof scene.traverse !== 'function') {
-          console.log("Invalid scene for alternative processing");
-          return;
-        }
-        
+
         let meshCount = 0;
-        
         scene.traverse((node) => {
           if (node.isMesh && node.material) {
             meshCount++;
-            console.log(`🔧 Alternative processing mesh ${meshCount}:`, node.name || 'unnamed');
-            
+            console.log(`Processing mesh ${meshCount}: ${node.name || 'unnamed'}`);
+
             const materials = Array.isArray(node.material) ? node.material : [node.material];
             
             materials.forEach((material, index) => {
               if (material) {
-                // より強力なシェーダー置換
-                material.side = 2; // DoubleSide
+                console.log(`  Modifying material ${index}: ${material.type}`);
                 
+                // 元のマテリアルを保存
+                const originalSide = material.side;
                 const originalOnBeforeCompile = material.onBeforeCompile;
-                material.onBeforeCompile = function(shader) {
-                  if (originalOnBeforeCompile) {
+                
+                // 両面表示を強制的に有効化
+                material.side = 2; // THREE.DoubleSide
+                
+                // 透明度とカリング設定
+                if (material.transparent === undefined) {
+                  material.transparent = false;
+                }
+                
+                // シェーダー修正で裏面をグレーに（確実版）
+                material.onBeforeCompile = function (shader) {
+                  console.log(`  Compiling shader for material ${index}`);
+                  console.log(`  Original fragment shader length: ${shader.fragmentShader.length}`);
+                  
+                  // 元のコンパイラも実行
+                  if (originalOnBeforeCompile && typeof originalOnBeforeCompile === 'function') {
                     originalOnBeforeCompile.call(this, shader);
                   }
                   
-                  // より確実なシェーダー置換
-                  if (shader.fragmentShader.includes('gl_FragColor')) {
+                  // 確実にgl_FrontFacingチェックを追加
+                  const backfaceCode = `
+                    // 裏面ダークグレー着色
+                    if (!gl_FrontFacing) {
+                      gl_FragColor = vec4(0.2, 0.2, 0.2, 1.0);
+                    }
+                  `;
+                  
+                  // 複数の挿入ポイントを試行
+                  let modified = false;
+                  
+                  // 1. output_fragment の後
+                  if (shader.fragmentShader.includes('#include <output_fragment>')) {
                     shader.fragmentShader = shader.fragmentShader.replace(
-                      /gl_FragColor\s*=\s*([^;]+);/g,
-                      `
-                      if (gl_FrontFacing) {
-                        gl_FragColor = $1;
-                      } else {
-                        gl_FragColor = vec4(1.0, 0.0, 0.0, ($1).a);
-                      }
-                      `
+                      /#include <output_fragment>/g,
+                      `#include <output_fragment>\n${backfaceCode}`
                     );
-                  } else {
-                    // outputColorを使用している場合
-                    shader.fragmentShader = shader.fragmentShader.replace(
-                      '#include <output_fragment>',
-                      `
-                      #include <output_fragment>
-                      if (!gl_FrontFacing) {
-                        gl_FragColor = vec4(1.0, 0.0, 0.0, gl_FragColor.a);
-                      }
-                      `
-                    );
+                    modified = true;
+                    console.log(`  ✓ Applied after output_fragment`);
                   }
                   
-                  console.log(`🎨 Alternative shader compiled for material:`, material.name || index);
+                  // 2. main関数の最後
+                  if (!modified && shader.fragmentShader.includes('void main()')) {
+                    shader.fragmentShader = shader.fragmentShader.replace(
+                      /(void\s+main\s*\(\s*\)\s*{[\s\S]*?)(\s*}\s*)$/,
+                      `$1${backfaceCode}$2`
+                    );
+                    modified = true;
+                    console.log(`  ✓ Applied at end of main()`);
+                  }
+                  
+                  // 3. 最終手段：シェーダーの最後
+                  if (!modified) {
+                    shader.fragmentShader = shader.fragmentShader.replace(
+                      /}\s*$/,
+                      `${backfaceCode}\n}`
+                    );
+                    console.log(`  ✓ Applied at shader end (forced)`);
+                  }
+                  
+                  console.log(`  Modified fragment shader length: ${shader.fragmentShader.length}`);
+                  
+                  // デバッグ用：修正されたシェーダーの一部を表示
+                  const lines = shader.fragmentShader.split('\n');
+                  console.log(`  Last 5 lines of shader:`, lines.slice(-5));
                 };
                 
                 material.needsUpdate = true;
+                console.log(`  ✓ Material ${index} processed for gray backface (enhanced)`);
               }
             });
           }
         });
-        
-        console.log(`🎉 Alternative approach processed ${meshCount} meshes`);
+
+        console.log(`✅ Processed ${meshCount} meshes with gray backface coloring`);
       }
 
       // URLパラメータからモデルURLを取得
@@ -1262,25 +1263,65 @@ This project includes code from the following third-party libraries:
         return urlParams.get("src");
       }
 
+      // ブラウザの自動リロードを防止
+      window.addEventListener('beforeunload', (event) => {
+        console.log("🚨 Page unload detected - checking if intentional...");
+        
+        // メモリ不足などでの意図しないリロードを検出
+        if (performance.memory) {
+          const memoryRatio = performance.memory.usedJSHeapSize / performance.memory.jsHeapSizeLimit;
+          if (memoryRatio > 0.9) {
+            console.error("🚨 High memory usage detected during unload:", memoryRatio);
+            // ストレージをクリアしてから再読み込み
+            localStorage.clear();
+            sessionStorage.clear();
+          }
+        }
+      });
+
+      // エラー時の自動リロードを防止
+      window.addEventListener('error', (event) => {
+        console.error("🚨 Global error detected:", event.error);
+        if (event.error && event.error.message) {
+          if (event.error.message.includes('memory') || 
+              event.error.message.includes('quota') ||
+              event.error.message.includes('storage')) {
+            console.error("🚨 Memory/Storage error - preventing automatic reload");
+            event.preventDefault();
+            showError("Memory or storage error detected", modelViewer.src || "unknown");
+          }
+        }
+      });
+
       // 初期化
       document.addEventListener("DOMContentLoaded", () => {
+        console.log("🚀 Page loaded, initializing...");
         updateBackgroundColor();
 
         // URLパラメータにモデルURLがあれば読み込み
         const modelUrl = getModelUrlFromParams();
         if (modelUrl) {
-          console.log("Loading model from URL parameter:", modelUrl);
+          console.log("📥 Loading model from URL parameter:", modelUrl);
           loadSampleModel(modelUrl);
         } else {
+          console.log("🔍 No URL parameter, checking default model...");
           // default.glbが存在しない場合のフォールバック
           checkDefaultModel();
         }
+        
+        // 5分後に強制的にエラー画面を表示（デバッグ用）
+        setTimeout(() => {
+          if (!modelViewer.model && customProgressBar.style.display !== "none") {
+            console.error("🚨 Force timeout after 5 minutes");
+            showError("Loading took too long - please try again", modelViewer.src || "unknown");
+          }
+        }, 300000);
       });
 
       // default.glbの存在チェック
       async function checkDefaultModel() {
         try {
-          const response = await fetch('./default.glb', { method: 'HEAD' });
+          const response = await fetch("./default.glb", { method: "HEAD" });
           if (response.ok) {
             // default.glbが存在する場合
             console.log("Loading default.glb");
@@ -1288,12 +1329,14 @@ This project includes code from the following third-party libraries:
           } else {
             // default.glbが存在しない場合、Arweaveのモデルを使用
             console.log("default.glb not found, using fallback model");
-            modelViewer.src = "https://arweave.net/ZFDOSKBnBnAlHx4olZjFEAQpPgO0UigLHrzXw-bds6k";
+            modelViewer.src =
+              "https://arweave.net/ZFDOSKBnBnAlHx4olZjFEAQpPgO0UigLHrzXw-bds6k";
           }
         } catch (error) {
           // ネットワークエラーまたはファイルが存在しない場合
           console.log("default.glb not accessible, using fallback model");
-          modelViewer.src = "https://arweave.net/ZFDOSKBnBnAlHx4olZjFEAQpPgO0UigLHrzXw-bds6k";
+          modelViewer.src =
+            "https://arweave.net/ZFDOSKBnBnAlHx4olZjFEAQpPgO0UigLHrzXw-bds6k";
         }
       }
 

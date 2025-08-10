@@ -330,6 +330,7 @@ This project includes code from the following third-party libraries:
         text-align: center;
         background: rgba(255, 255, 255, 0.95);
         border-radius: 12px;
+        position: relative;
       }
 
       .error-icon {
@@ -398,6 +399,38 @@ This project includes code from the following third-party libraries:
       @keyframes spin {
         0% { transform: rotate(0deg); }
         100% { transform: rotate(360deg); }
+      }
+      
+      /* メタマスク用の吹き出し */
+      .metamask-hint {
+        position: absolute;
+        bottom: 20px;
+        right: 20px;
+        background: #007bff;
+        color: white;
+        padding: 12px 16px;
+        border-radius: 8px;
+        font-size: 13px;
+        max-width: 250px;
+        box-shadow: 0 4px 12px rgba(0, 123, 255, 0.3);
+        animation: pulseHint 2s ease-in-out infinite;
+      }
+      
+      .metamask-hint::after {
+        content: '';
+        position: absolute;
+        bottom: -8px;
+        right: 30px;
+        width: 0;
+        height: 0;
+        border-left: 8px solid transparent;
+        border-right: 8px solid transparent;
+        border-top: 8px solid #007bff;
+      }
+      
+      @keyframes pulseHint {
+        0%, 100% { transform: scale(1); }
+        50% { transform: scale(1.05); }
       }
     </style>
   </head>
@@ -1048,7 +1081,12 @@ This project includes code from the following third-party libraries:
           if (!this.environment.isWebView) return '';
           
           if (this.environment.isMetaMask) {
-            return '<p class="error-message" style="font-size: 12px; color: #888; margin-top: 10px;">MetaMaskブラウザでは3D表示に制限があります。Chrome/Safariなどの標準ブラウザで開いてください。</p>';
+            return `
+              <p class="error-message" style="font-size: 12px; color: #888; margin-top: 10px;">MetaMaskブラウザでは3D表示に制限があります。Chrome/Safariなどの標準ブラウザで開いてください。</p>
+              <div class="metamask-hint">
+                ⋯ より「ブラウザで開く」メニューをお試しください
+              </div>
+            `;
           } else {
             return '<p class="error-message" style="font-size: 12px; color: #888; margin-top: 10px;">このアプリ内ブラウザでは3D表示に制限があります。標準ブラウザ（Chrome、Safari等）で開いてください。</p>';
           }

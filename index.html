@@ -854,8 +854,296 @@ This project includes code from the following third-party libraries:
         }
       }
 
-      // エラーの種類を判別
+      // ==========================================
+      // エラー処理モジュール
+      // ==========================================
+      
+      // 環境検出クラス
+      class EnvironmentDetector {
+        constructor() {
+          this.userAgent = navigator.userAgent;
+          this.isMetaMask = this.detectMetaMask();
+          this.isWebView = this.detectWebView();
+          this.platform = this.detectPlatform();
+        }
+        
+        detectMetaMask() {
+          return (window.ethereum && window.ethereum.isMetaMask) || /MetaMask/i.test(this.userAgent);
+        }
+        
+        detectWebView() {
+          if (this.isMetaMask) return true;
+          
+          const webViewPatterns = [
+            /wv/i, /WebView/i, /FBAN|FBAV/i, /Line/i, 
+            /Instagram/i, /Twitter/i
+          ];
+          
+          return webViewPatterns.some(pattern => pattern.test(this.userAgent));
+        }
+        
+        detectPlatform() {
+          const isAndroid = /Android/i.test(this.userAgent);
+          const isIOS = /iPhone|iPad|iPod/i.test(this.userAgent);
+          const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(this.userAgent);
+          
+          return { isAndroid, isIOS, isMobile };
+        }
+      }
+      
+      // エラー分析クラス
+      class ErrorAnalyzer {
+        constructor(environment) {
+          this.environment = environment;
+        }
+        
+        analyze(message, modelUrl) {
+          const errorType = {
+            type: 'unknown',
+            category: 'general',
+            showMemoryInfo: false,
+            solutions: []
+          };
+          
+          const lowerMessage = message.toLowerCase();
+          
+          // CORSエラー
+          if (this.isCorsError(lowerMessage)) {
+            errorType.type = 'cors';
+            errorType.category = 'network';
+            errorType.solutions = [
+              'このモデルのホストサーバーがCORS設定を許可していない可能性があります',
+              'プロキシサービスを経由してアクセスするか、モデルを別のホストに配置してください'
+            ];
+          }
+          // メモリエラー
+          else if (this.isMemoryError(lowerMessage)) {
+            errorType.type = 'memory';
+            errorType.category = 'resource';
+            errorType.showMemoryInfo = true;
+            errorType.solutions = [
+              'モデルファイルが大きすぎる可能性があります',
+              '他のタブを閉じてメモリを解放してください',
+              'より小さいモデルファイルを使用してください'
+            ];
+          }
+          // タイムアウト
+          else if (this.isTimeoutError(lowerMessage)) {
+            errorType.type = 'timeout';
+            errorType.category = 'network';
+            errorType.solutions = [
+              'ネットワーク接続が遅いか不安定な可能性があります',
+              'ファイルサイズが大きすぎる可能性があります'
+            ];
+          }
+          // フォーマットエラー
+          else if (this.isFormatError(lowerMessage)) {
+            errorType.type = 'format';
+            errorType.category = 'file';
+            errorType.solutions = this.getFormatErrorSolutions();
+          }
+          // その他のエラー
+          else {
+            errorType.solutions = this.getGenericSolutions();
+          }
+          
+          return errorType;
+        }
+        
+        isCorsError(message) {
+          return message.includes('cors') || message.includes('cross-origin') || 
+                 message.includes('network error') || message.includes('failed to fetch');
+        }
+        
+        isMemoryError(message) {
+          return message.includes('memory') || message.includes('typed array length') ||
+                 message.includes('out of memory');
+        }
+        
+        isTimeoutError(message) {
+          return message.includes('timeout') || message.includes('timed out');
+        }
+        
+        isFormatError(message) {
+          return message.includes('corrupted') || message.includes('incompatible') ||
+                 message.includes('invalid');
+        }
+        
+        getFormatErrorSolutions() {
+          if (this.environment.isWebView) {
+            return [
+              'このアプリ内ブラウザでは一部の3Dモデルが表示できない場合があります',
+              '標準ブラウザ（Chrome、Safari等）で開くことで正常に表示される可能性があります'
+            ];
+          } else {
+            return [
+              'このブラウザまたはデバイスでは、このモデルの表示に対応していない可能性があります',
+              '別のブラウザやデバイスで試してみてください',
+              'モデルファイルが特殊な形式や機能を使用している可能性があります'
+            ];
+          }
+        }
+        
+        getGenericSolutions() {
+          if (this.environment.isWebView) {
+            return [
+              'アプリ内ブラウザの制限により、3Dモデルを表示できません',
+              '標準ブラウザ（Chrome、Safari等）で開いてください'
+            ];
+          } else {
+            return [
+              'モデルの読み込みに失敗しました',
+              'ネットワーク接続を確認してください',
+              'しばらく待ってから再度お試しください'
+            ];
+          }
+        }
+      }
+      
+      // エラーUI生成クラス
+      class ErrorUIGenerator {
+        constructor(environment) {
+          this.environment = environment;
+        }
+        
+        generateLoadingUI(message) {
+          return `
+            <div class="error-display">
+              <div class="error-icon">⚠️</div>
+              <div class="error-text">
+                <p class="error-title">3D Model Loading Error</p>
+                <p class="error-message">${message}</p>
+                <div style="margin-top: 20px; text-align: center;">
+                  <div class="error-spinner"></div>
+                  <p style="font-size: 14px; color: #666; margin-top: 15px;">
+                    原因を調査中...
+                  </p>
+                </div>
+              </div>
+            </div>
+          `;
+        }
+        
+        generateDetailedUI(message, errorAnalysis, memoryInfo, modelUrl) {
+          const { memoryIssues, memoryDetails } = memoryInfo;
+          
+          return `
+            <div class="error-display">
+              <div class="error-icon">⚠️</div>
+              <div class="error-text">
+                <p class="error-title">3D Model Loading Error</p>
+                <p class="error-message">${message}</p>
+                ${this.generateHelpMessage()}
+                ${this.generateSolutions(errorAnalysis)}
+                ${this.generateSystemInfo(errorAnalysis, memoryIssues, memoryDetails)}
+                ${this.generateStorageActions(memoryIssues)}
+                ${this.generateButtons(errorAnalysis, modelUrl)}
+                ${this.generateAdditionalButtons(memoryIssues)}
+              </div>
+            </div>
+          `;
+        }
+        
+        generateHelpMessage() {
+          if (!this.environment.isWebView) return '';
+          
+          if (this.environment.isMetaMask) {
+            return '<p class="error-message" style="font-size: 12px; color: #888; margin-top: 10px;">MetaMaskブラウザでは3D表示に制限があります。Chrome/Safariなどの標準ブラウザで開いてください。</p>';
+          } else {
+            return '<p class="error-message" style="font-size: 12px; color: #888; margin-top: 10px;">このアプリ内ブラウザでは3D表示に制限があります。標準ブラウザ（Chrome、Safari等）で開いてください。</p>';
+          }
+        }
+        
+        generateSolutions(errorAnalysis) {
+          if (errorAnalysis.solutions.length === 0) return '';
+          
+          return `
+            <div style="margin: 15px 0; padding: 10px; background: rgba(23, 162, 184, 0.1); border-left: 3px solid #17a2b8; border-radius: 4px;">
+              <p style="font-size: 12px; color: #0c5460; margin: 0 0 8px 0;"><strong>考えられる原因と対処法:</strong></p>
+              ${errorAnalysis.solutions.map(solution => `<p style="font-size: 11px; color: #0c5460; margin: 2px 0;">• ${solution}</p>`).join('')}
+            </div>
+          `;
+        }
+        
+        generateSystemInfo(errorAnalysis, memoryIssues, memoryDetails) {
+          if (!errorAnalysis.showMemoryInfo && memoryIssues.length === 0) return '';
+          
+          return `
+            <div style="margin: 15px 0; padding: 10px; background: rgba(108, 117, 125, 0.1); border-left: 3px solid #6c757d; border-radius: 4px;">
+              <p style="font-size: 12px; color: #495057; margin: 0 0 8px 0;"><strong>システム情報:</strong></p>
+              ${memoryDetails.deviceMemory ? `<p style="font-size: 11px; color: #495057; margin: 2px 0;">• デバイスメモリ: ${memoryDetails.deviceMemory}</p>` : ''}
+              ${memoryDetails.jsHeapUsed ? `<p style="font-size: 11px; color: #495057; margin: 2px 0;">• JSヒープ使用量: ${memoryDetails.jsHeapUsed}</p>` : ''}
+              ${memoryDetails.localStorageUsed ? `<p style="font-size: 11px; color: #495057; margin: 2px 0;">• LocalStorage使用量: ${memoryDetails.localStorageUsed}</p>` : ''}
+              ${memoryDetails.localStorageStatus === 'FULL' ? `<p style="font-size: 11px; color: #dc3545; margin: 2px 0;">• LocalStorage: 容量上限に達しています</p>` : ''}
+            </div>
+          `;
+        }
+        
+        generateStorageActions(memoryIssues) {
+          if (memoryIssues.length === 0) return '';
+          
+          return `
+            <div style="margin: 15px 0; padding: 10px; background: rgba(255, 193, 7, 0.1); border-left: 3px solid #ffc107; border-radius: 4px;">
+              <p style="font-size: 12px; color: #856404; margin: 0 0 8px 0;"><strong>検出された問題:</strong></p>
+              ${memoryIssues.map(issue => `<p style="font-size: 11px; color: #856404; margin: 2px 0;">• ${issue}</p>`).join('')}
+            </div>
+            <button onclick="clearStorageAndReload()" class="viewer-link" style="background: #ffc107; color: #000; margin-bottom: 8px;">
+              🗑️ ストレージをクリアして再読み込み
+            </button>
+          `;
+        }
+        
+        generateButtons(errorAnalysis, modelUrl) {
+          if (this.environment.isWebView) {
+            const buttonText = this.environment.isMetaMask 
+              ? '📱 外部ブラウザで開く（Chrome/Safari）'
+              : '📋 URLをコピーして標準ブラウザで開く';
+              
+            return `
+              <button onclick="openInDefaultBrowser('${modelUrl}')" class="viewer-link">
+                ${buttonText}
+              </button>
+            `;
+          } else {
+            if (errorAnalysis.type === 'cors' || errorAnalysis.type === 'network') {
+              return `
+                <button onclick="window.location.reload()" class="viewer-link">
+                  🔄 再試行
+                </button>
+                <button onclick="window.location.href=window.location.pathname" class="viewer-link" style="background: #6c757d; margin-left: 5px;">
+                  🏠 ホームに戻る
+                </button>
+              `;
+            } else {
+              return `
+                <button onclick="window.location.reload()" class="viewer-link">
+                  🔄 ページを再読み込み
+                </button>
+              `;
+            }
+          }
+        }
+        
+        generateAdditionalButtons(memoryIssues) {
+          if (!this.environment.isWebView && memoryIssues.length > 0) {
+            return `<button onclick="clearStorageAndReload()" class="viewer-link" style="background: #6c757d; margin-top: 5px;">
+              🏠 ストレージクリア後ホームに戻る
+            </button>`;
+          }
+          return '';
+        }
+      }
+      
+      // エラーの種類を判別（互換性のため残す - 削除予定）
       function analyzeErrorType(message, modelUrl) {
+        const environment = new EnvironmentDetector();
+        const analyzer = new ErrorAnalyzer(environment);
+        return analyzer.analyze(message, modelUrl);
+      }
+      
+      // 古いanalyzeErrorType実装（参考用にコメント化）
+      /*
+      function analyzeErrorType_OLD(message, modelUrl) {
         const errorType = {
           type: 'unknown',
           category: 'general',
@@ -956,171 +1244,54 @@ This project includes code from the following third-party libraries:
         
         return errorType;
       }
+      */
 
-      // エラー表示
+      // エラー表示（シンプル化）
       function showError(message, modelUrl) {
         const container = document.querySelector(".container");
+        const environment = new EnvironmentDetector();
+        const uiGenerator = new ErrorUIGenerator(environment);
         
         // まず原因調査中の表示を出す
-        container.innerHTML = `
-          <div class="error-display">
-            <div class="error-icon">⚠️</div>
-            <div class="error-text">
-              <p class="error-title">3D Model Loading Error</p>
-              <p class="error-message">${message}</p>
-              <div style="margin-top: 20px; text-align: center;">
-                <div class="error-spinner"></div>
-                <p style="font-size: 14px; color: #666; margin-top: 15px;">
-                  原因を調査中...
-                </p>
-              </div>
-            </div>
-          </div>
-        `;
+        container.innerHTML = uiGenerator.generateLoadingUI(message);
         
         // 少し遅延を入れて原因調査を実行
         setTimeout(() => {
-          const isInWebView = detectWebView();
+          // 環境とエラーの分析
+          const errorAnalyzer = new ErrorAnalyzer(environment);
+          const errorAnalysis = errorAnalyzer.analyze(message, modelUrl);
+          
+          // メモリ情報の取得
           const memoryCheck = checkMemoryAndStorage();
-          const memoryIssues = memoryCheck.issues;
-          const memoryDetails = memoryCheck.details;
-          const errorAnalysis = analyzeErrorType(message, modelUrl);
-        
-        // エラータイプに応じた解決策の表示
-        let solutionsHtml = '';
-        if (errorAnalysis.solutions.length > 0) {
-          solutionsHtml = `
-            <div style="margin: 15px 0; padding: 10px; background: rgba(23, 162, 184, 0.1); border-left: 3px solid #17a2b8; border-radius: 4px;">
-              <p style="font-size: 12px; color: #0c5460; margin: 0 0 8px 0;"><strong>考えられる原因と対処法:</strong></p>
-              ${errorAnalysis.solutions.map(solution => `<p style="font-size: 11px; color: #0c5460; margin: 2px 0;">• ${solution}</p>`).join('')}
-            </div>
-          `;
-        }
-        
-        // メモリ・ストレージ問題がある場合の特別対応
-        let storageActions = '';
-        if (memoryIssues.length > 0) {
-          storageActions = `
-            <div style="margin: 15px 0; padding: 10px; background: rgba(255, 193, 7, 0.1); border-left: 3px solid #ffc107; border-radius: 4px;">
-              <p style="font-size: 12px; color: #856404; margin: 0 0 8px 0;"><strong>検出された問題:</strong></p>
-              ${memoryIssues.map(issue => `<p style="font-size: 11px; color: #856404; margin: 2px 0;">• ${issue}</p>`).join('')}
-            </div>
-            <button onclick="clearStorageAndReload()" class="viewer-link" style="background: #ffc107; color: #000; margin-bottom: 8px;">
-              🗑️ ストレージをクリアして再読み込み
-            </button>
-          `;
-        }
-        
-        // システム情報の詳細表示（メモリ関連エラーまたは問題がある場合のみ）
-        let systemInfo = '';
-        if (errorAnalysis.showMemoryInfo || memoryIssues.length > 0) {
-          systemInfo = `
-            <div style="margin: 15px 0; padding: 10px; background: rgba(108, 117, 125, 0.1); border-left: 3px solid #6c757d; border-radius: 4px;">
-              <p style="font-size: 12px; color: #495057; margin: 0 0 8px 0;"><strong>システム情報:</strong></p>
-              ${memoryDetails.deviceMemory ? `<p style="font-size: 11px; color: #495057; margin: 2px 0;">• デバイスメモリ: ${memoryDetails.deviceMemory}</p>` : ''}
-              ${memoryDetails.jsHeapUsed ? `<p style="font-size: 11px; color: #495057; margin: 2px 0;">• JSヒープ使用量: ${memoryDetails.jsHeapUsed}</p>` : ''}
-              ${memoryDetails.localStorageUsed ? `<p style="font-size: 11px; color: #495057; margin: 2px 0;">• LocalStorage使用量: ${memoryDetails.localStorageUsed}</p>` : ''}
-              ${memoryDetails.localStorageStatus === 'FULL' ? `<p style="font-size: 11px; color: #dc3545; margin: 2px 0;">• LocalStorage: 容量上限に達しています</p>` : ''}
-            </div>
-          `;
-        }
-        
-        // エラータイプに応じたボタンとメッセージ
-        let buttonContent = '';
-        let helpMessage = '';
-        
-        if (isInWebView) {
-          // MetaMask特有のボタンテキスト
-          const buttonText = isMetaMaskBrowser() 
-            ? '📱 外部ブラウザで開く（Chrome/Safari）'
-            : '📋 URLをコピーして標準ブラウザで開く';
-            
-          buttonContent = `
-            <button onclick="openInDefaultBrowser('${modelUrl}')" class="viewer-link">
-              ${buttonText}
-            </button>
-          `;
+          const memoryInfo = {
+            memoryIssues: memoryCheck.issues,
+            memoryDetails: memoryCheck.details
+          };
           
-          // MetaMask特有のヘルプメッセージ
-          if (isMetaMaskBrowser()) {
-            helpMessage = 'MetaMaskブラウザでは3D表示に制限があります。Chrome/Safariなどの標準ブラウザで開いてください。';
-          } else {
-            helpMessage = 'このアプリ内ブラウザでは3D表示に制限があります。標準ブラウザ（Chrome、Safari等）で開いてください。';
-          }
-        } else {
-          // エラータイプに応じたボタン
-          if (errorAnalysis.type === 'cors' || errorAnalysis.type === 'network') {
-            buttonContent = `
-              <button onclick="window.location.reload()" class="viewer-link">
-                🔄 再試行
-              </button>
-              <button onclick="window.location.href=window.location.pathname" class="viewer-link" style="background: #6c757d; margin-left: 5px;">
-                🏠 ホームに戻る
-              </button>
-            `;
-          } else {
-            buttonContent = `
-              <button onclick="window.location.reload()" class="viewer-link">
-                🔄 ページを再読み込み
-              </button>
-            `;
-          }
-          
-          // デフォルトのヘルプメッセージを削除（具体的な解決策で置き換え）
-          helpMessage = '';
-        }
-        
-        container.innerHTML = `
-                <div class="error-display">
-                    <div class="error-icon">⚠️</div>
-                    <div class="error-text">
-                        <p class="error-title">3D Model Loading Error</p>
-                        <p class="error-message">${message}</p>
-                        ${helpMessage ? `<p class="error-message" style="font-size: 12px; color: #888; margin-top: 10px;">${helpMessage}</p>` : ''}
-                        ${solutionsHtml}
-                        ${systemInfo}
-                        ${storageActions}
-                        ${buttonContent}
-                        ${!isInWebView && memoryIssues.length > 0 ? `<button onclick="clearStorageAndReload()" class="viewer-link" style="background: #6c757d; margin-top: 5px;">
-                          🏠 ストレージクリア後ホームに戻る
-                        </button>` : ''}
-                    </div>
-                </div>
-            `;
-          }, 1500); // 1.5秒後に詳細情報を表示
+          // 詳細UIの生成と表示
+          container.innerHTML = uiGenerator.generateDetailedUI(
+            message,
+            errorAnalysis,
+            memoryInfo,
+            modelUrl
+          );
+        }, 1500); // 1.5秒後に詳細情報を表示
       }
 
       function clearError() {
         // エラー表示をクリア（必要に応じて実装）
       }
 
-      // WebView環境の検出（MetaMask対応版）
+      // WebView環境の検出（互換性のため残す）
       function detectWebView() {
-        const userAgent = navigator.userAgent;
-        
-        // MetaMaskブラウザの検出
-        if (window.ethereum && window.ethereum.isMetaMask) {
-          console.log("MetaMask browser detected");
-          return true;
-        }
-        
-        // 主要なWebViewパターン
-        const webViewPatterns = [
-          /wv/i,           // Android WebView
-          /WebView/i,      // 汎用WebView
-          /FBAN|FBAV/i,   // Facebook内ブラウザ
-          /Line/i,         // LINE内ブラウザ
-          /Instagram/i,    // Instagram内ブラウザ
-          /Twitter/i,      // Twitter内ブラウザ
-          /MetaMask/i      // MetaMask Mobile
-        ];
-        
-        return webViewPatterns.some(pattern => pattern.test(userAgent));
+        const detector = new EnvironmentDetector();
+        return detector.isWebView;
       }
       
-      // MetaMaskブラウザかどうかを判定
+      // MetaMaskブラウザかどうかを判定（互換性のため残す）
       function isMetaMaskBrowser() {
-        return (window.ethereum && window.ethereum.isMetaMask) || /MetaMask/i.test(navigator.userAgent);
+        const detector = new EnvironmentDetector();
+        return detector.isMetaMask;
       }
 
       // 標準ブラウザでURLを開く
@@ -1138,56 +1309,57 @@ This project includes code from the following third-party libraries:
           const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
           
           if (isAndroid) {
-            // Androidの場合、複数の方法を試行
-            const androidMethods = [
-              // 方法1: intentスキームでChromeを直接起動
-              () => {
-                const intentUrl = `intent://${fullUrl.replace(/^https?:\/\//, '')}#Intent;scheme=https;package=com.android.chrome;end`;
-                window.location.href = intentUrl;
-              },
-              // 方法2: googlechrome-navigateスキーム
-              () => {
-                window.location.href = `googlechrome://navigate?url=${encodeURIComponent(fullUrl)}`;
-              },
-              // 方法3: 通常のintentスキーム
-              () => {
-                const intentUrl = `intent://${fullUrl.replace(/^https?:\/\//, '')}#Intent;action=android.intent.action.VIEW;scheme=https;end`;
-                window.location.href = intentUrl;
-              }
-            ];
-            
-            // 最初の方法を試行
-            androidMethods[0]();
-            
-            // フォールバック: URLとインストラクション表示
-            setTimeout(() => {
-              showBrowserInstructions(fullUrl, 'Android');
-            }, 1500);
+            // Androidの場合：まずクリップボードにコピーを試行
+            copyToClipboard(fullUrl).then((copySuccess) => {
+              // Chrome起動を試行
+              const intentUrl = `intent://${fullUrl.replace(/^https?:\/\//, '')}#Intent;scheme=https;package=com.android.chrome;end`;
+              window.location.href = intentUrl;
+              
+              // 1.5秒後にフォールバック処理
+              setTimeout(() => {
+                if (copySuccess) {
+                  alert(`URLをクリップボードにコピーしました。\n\n自動でChrome/標準ブラウザが開かない場合は、手動にてブラウザのURL欄にペーストしてください。\n\nコピー済みのURL:\n${fullUrl}`);
+                } else {
+                  alert(`URLのコピーに失敗しました。\n\n以下のURLを手動でコピーしてブラウザで開いてください：\n${fullUrl}`);
+                }
+              }, 1500);
+            });
           } else if (isIOS) {
-            // iOSの場合、複数の方法を試行
-            const iosMethods = [
-              // 方法1: googlechrome-xスキーム
-              () => {
-                const chromeUrl = `googlechrome-x-callback://x-callback-url/open/?url=${encodeURIComponent(fullUrl)}`;
-                window.location.href = chromeUrl;
-              },
-              // 方法2: Safariで開く
-              () => {
-                // iOSではwindow.openが機能する可能性
-                window.open(fullUrl, '_blank');
-              }
-            ];
-            
-            // 最初の方法を試行
-            iosMethods[0]();
-            
-            // フォールバック: URLとインストラクション表示
-            setTimeout(() => {
-              showBrowserInstructions(fullUrl, 'iOS');
-            }, 1500);
+            // iOSの場合：まずクリップボードにコピーを試行
+            copyToClipboard(fullUrl).then((copySuccess) => {
+              // Chrome起動を試行
+              const chromeUrl = `googlechrome-x-callback://x-callback-url/open/?url=${encodeURIComponent(fullUrl)}`;
+              window.location.href = chromeUrl;
+              
+              // 1.5秒後にフォールバック処理
+              setTimeout(() => {
+                if (copySuccess) {
+                  alert(`URLをクリップボードにコピーしました。\n\n自動でChrome/Safariが開かない場合、手動にてブラウザのURL欄にペーストしてください。\n\nコピー済みのURL:\n${fullUrl}`);
+                } else {
+                  alert(`URLのコピーに失敗しました。\n\n以下のURLを手動でコピーしてブラウザで開いてください：\n${fullUrl}`);
+                }
+              }, 1500);
+            });
           } else {
             // デスクトップMetaMask
-            copyToClipboardAndNotify(fullUrl);
+            copyToClipboard(fullUrl).then((copySuccess) => {
+              if (copySuccess) {
+                alert(`URLをクリップボードにコピーしました。\n標準ブラウザで貼り付けて開いてください。\n\nコピー済みのURL:\n${fullUrl}`);
+              } else {
+                const userChoice = confirm(
+                  'URLのコピーに失敗しました。\n\n' +
+                  '以下の方法で対処できます：\n' +
+                  '• OK: URLを表示してマニュアルコピー\n' +
+                  '• キャンセル: 前のページに戻る'
+                );
+                
+                if (userChoice) {
+                  prompt('以下のURLを手動でコピーしてください:', fullUrl);
+                } else {
+                  history.back();
+                }
+              }
+            });
           }
           return;
         }
@@ -1233,47 +1405,74 @@ This project includes code from the following third-party libraries:
         }
       }
       
-      // MetaMask用のブラウザ指示を表示
-      function showBrowserInstructions(url, platform) {
-        const message = platform === 'iOS' 
-          ? `MetaMaskアプリ内では直接ブラウザを開けません。\n\n以下の手順で開いてください：\n1. このURLをコピー\n2. SafariまたはChromeを開く\n3. URLを貼り付けてアクセス\n\nURL: ${url}`
-          : `MetaMaskアプリ内では直接ブラウザを開けません。\n\n以下の手順で開いてください：\n1. このURLをコピー\n2. ChromeまたはFirefoxを開く\n3. URLを貼り付けてアクセス\n\nURL: ${url}`;
-        
-        alert(message);
-        
-        // URLをクリップボードにコピー
-        copyToClipboard(url);
+      // クリップボードにコピー（Promise版 - 成功/失敗を返す）
+      function copyToClipboard(url) {
+        return new Promise((resolve) => {
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(url)
+              .then(() => {
+                console.log('Copied using Clipboard API');
+                resolve(true);
+              })
+              .catch(() => {
+                console.log('Clipboard API failed, trying fallback');
+                resolve(fallbackCopyToClipboard(url));
+              });
+          } else {
+            resolve(fallbackCopyToClipboard(url));
+          }
+        });
       }
       
-      // クリップボードにコピー（通知なし）
-      function copyToClipboard(url) {
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-          navigator.clipboard.writeText(url).catch(() => {
-            fallbackCopyToClipboard(url);
-          });
-        } else {
-          fallbackCopyToClipboard(url);
+      // フォールバックコピー（成功/失敗を返す）
+      function fallbackCopyToClipboard(url) {
+        try {
+          const textArea = document.createElement('textarea');
+          textArea.value = url;
+          textArea.style.position = 'fixed';
+          textArea.style.left = '-999999px';
+          document.body.appendChild(textArea);
+          textArea.focus();
+          textArea.select();
+          
+          const successful = document.execCommand('copy');
+          document.body.removeChild(textArea);
+          
+          if (successful) {
+            console.log('Copied using execCommand');
+            return true;
+          } else {
+            console.log('execCommand failed');
+            return false;
+          }
+        } catch (error) {
+          console.log('execCommand error:', error);
+          return false;
         }
       }
 
-      // クリップボードにコピーしてユーザーに通知
+      // クリップボードにコピーしてユーザーに通知（レガシー関数）
       function copyToClipboardAndNotify(url) {
         console.log('Copying to clipboard:', url);
         
-        // 複数の方法でクリップボードコピーを試行
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-          // 最新のClipboard API
-          navigator.clipboard.writeText(url).then(() => {
-            console.log('Copied using Clipboard API');
-            showCopySuccessAlert(url);
-          }).catch(() => {
-            console.log('Clipboard API failed, trying fallback');
-            fallbackCopyToClipboard(url);
-          });
-        } else {
-          // フォールバック方法
-          fallbackCopyToClipboard(url);
-        }
+        copyToClipboard(url).then((success) => {
+          if (success) {
+            alert(`URLをクリップボードにコピーしました！\n標準ブラウザ（Chrome、Safari等）で貼り付けて開いてください。\n\nコピーされたURL:\n${url}`);
+          } else {
+            const userChoice = confirm(
+              '自動コピーに失敗しました。\n\n' +
+              '以下の方法で対処できます：\n' +
+              '• OK: URLを表示してマニュアルコピー\n' +
+              '• キャンセル: 前のページに戻る'
+            );
+            
+            if (userChoice) {
+              prompt('以下のURLを手動でコピーしてください:', url);
+            } else {
+              history.back();
+            }
+          }
+        });
       }
 
       // フォールバック方法でクリップボードにコピー
@@ -1558,9 +1757,8 @@ This project includes code from the following third-party libraries:
                   
                   // 確実にgl_FrontFacingチェックを追加
                   const backfaceCode = `
-                    // 裏面ダークグレー着色
                     if (!gl_FrontFacing) {
-                      gl_FragColor = vec4(0.2, 0.2, 0.2, 1.0);
+                      gl_FragColor = vec4(0.07, 0.05, 0.05, 1.0);
                     }
                   `;
                   

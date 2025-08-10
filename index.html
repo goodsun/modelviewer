@@ -383,6 +383,22 @@ This project includes code from the following third-party libraries:
           min-width: 180px;
         }
       }
+      
+      /* エラースピナー */
+      .error-spinner {
+        width: 40px;
+        height: 40px;
+        border: 4px solid rgba(255, 255, 255, 0.3);
+        border-top: 4px solid #fff;
+        border-radius: 50%;
+        margin: 0 auto;
+        animation: spin 1s linear infinite;
+      }
+      
+      @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+      }
     </style>
   </head>
   <body>
@@ -578,7 +594,12 @@ This project includes code from the following third-party libraries:
                 errorMsg = `Model loading failed: ${sourceError.message || "Unknown error"}`;
               }
             } else {
-              errorMsg = "Model file is corrupted or incompatible";
+              // WebView環境かどうかで異なるメッセージ
+              if (detectWebView()) {
+                errorMsg = "Failed to load 3D model in this browser environment";
+              } else {
+                errorMsg = "Failed to load 3D model";
+              }
               console.error("🚨 Load failure detected without source error");
             }
           } else if (event.detail.sourceError) {
@@ -709,22 +730,16 @@ This project includes code from the following third-party libraries:
       function isValidModelUrl(url) {
         try {
           const urlObj = new URL(url);
-          const pathname = urlObj.pathname.toLowerCase();
-          
-          // 対応している拡張子をチェック
-          const validExtensions = ['.glb', '.gltf'];
-          const hasValidExtension = validExtensions.some(ext => pathname.endsWith(ext));
-          
-          if (!hasValidExtension) {
-            console.error("🚨 Invalid file extension. Supported formats: .glb, .gltf");
-            return false;
-          }
           
           // プロトコルのチェック
           if (!['http:', 'https:'].includes(urlObj.protocol)) {
             console.error("🚨 Invalid protocol. Only HTTP/HTTPS is supported");
             return false;
           }
+          
+          // 拡張子チェックは行わない
+          // model-viewerが内部でMIMEタイプやファイル内容を確認する
+          console.log("✅ URL validation passed:", url);
           
           return true;
         } catch (e) {
@@ -736,10 +751,14 @@ This project includes code from the following third-party libraries:
       // メモリ・ストレージ容量をチェック
       function checkMemoryAndStorage() {
         const issues = [];
+        const details = {};
         
         // 利用可能メモリの推定
-        if (navigator.deviceMemory && navigator.deviceMemory < 4) {
-          issues.push('デバイスメモリが不足している可能性があります');
+        if (navigator.deviceMemory) {
+          details.deviceMemory = `${navigator.deviceMemory}GB`;
+          if (navigator.deviceMemory < 4) {
+            issues.push(`デバイスメモリが不足している可能性があります (${navigator.deviceMemory}GB)`);
+          }
         }
         
         // ローカルストレージ容量チェック
@@ -748,21 +767,48 @@ This project includes code from the following third-party libraries:
           const testData = 'x'.repeat(1024 * 1024); // 1MBのテストデータ
           localStorage.setItem(testKey, testData);
           localStorage.removeItem(testKey);
+          
+          // ローカルストレージの使用状況を推定
+          let localStorageSize = 0;
+          for (let key in localStorage) {
+            if (localStorage.hasOwnProperty(key)) {
+              localStorageSize += localStorage[key].length + key.length;
+            }
+          }
+          details.localStorageUsed = `${(localStorageSize / 1024).toFixed(1)}KB`;
         } catch (e) {
           if (e.name === 'QuotaExceededError') {
             issues.push('ローカルストレージの容量が不足しています');
+            details.localStorageStatus = 'FULL';
           }
         }
         
         // ヒープメモリ使用量チェック（Chrome限定）
         if (performance.memory) {
+          const usedMB = (performance.memory.usedJSHeapSize / 1024 / 1024).toFixed(1);
+          const limitMB = (performance.memory.jsHeapSizeLimit / 1024 / 1024).toFixed(1);
           const memoryRatio = performance.memory.usedJSHeapSize / performance.memory.jsHeapSizeLimit;
+          
+          details.jsHeapUsed = `${usedMB}MB / ${limitMB}MB (${(memoryRatio * 100).toFixed(0)}%)`;
+          
           if (memoryRatio > 0.8) {
-            issues.push('ブラウザのメモリ使用量が高すぎます');
+            issues.push(`ブラウザのメモリ使用量が高すぎます (${(memoryRatio * 100).toFixed(0)}%使用中)`);
           }
         }
         
-        return issues;
+        // Storage API（使用可能な場合）でディスク容量をチェック
+        if (navigator.storage && navigator.storage.estimate) {
+          navigator.storage.estimate().then(estimate => {
+            const usedMB = (estimate.usage / 1024 / 1024).toFixed(1);
+            const quotaMB = (estimate.quota / 1024 / 1024).toFixed(1);
+            const usagePercent = ((estimate.usage / estimate.quota) * 100).toFixed(0);
+            
+            details.storageEstimate = `${usedMB}MB / ${quotaMB}MB (${usagePercent}%)`;
+            console.log('Storage estimate:', details.storageEstimate);
+          });
+        }
+        
+        return { issues, details };
       }
       
       // ローカルストレージとキャッシュをクリア
@@ -808,11 +854,148 @@ This project includes code from the following third-party libraries:
         }
       }
 
+      // エラーの種類を判別
+      function analyzeErrorType(message, modelUrl) {
+        const errorType = {
+          type: 'unknown',
+          category: 'general',
+          showMemoryInfo: false,
+          solutions: []
+        };
+        
+        const lowerMessage = message.toLowerCase();
+        const isInWebView = detectWebView();
+        
+        // CORSエラー
+        if (lowerMessage.includes('cors') || lowerMessage.includes('cross-origin') || 
+            lowerMessage.includes('network error') || lowerMessage.includes('failed to fetch')) {
+          errorType.type = 'cors';
+          errorType.category = 'network';
+          errorType.solutions = [
+            'このモデルのホストサーバーがCORS設定を許可していない可能性があります',
+            'プロキシサービスを経由してアクセスするか、モデルを別のホストに配置してください'
+          ];
+        }
+        // メモリエラー
+        else if (lowerMessage.includes('memory') || lowerMessage.includes('typed array length') ||
+                 lowerMessage.includes('out of memory')) {
+          errorType.type = 'memory';
+          errorType.category = 'resource';
+          errorType.showMemoryInfo = true;
+          errorType.solutions = [
+            'モデルファイルが大きすぎる可能性があります',
+            '他のタブを閉じてメモリを解放してください',
+            'より小さいモデルファイルを使用してください'
+          ];
+        }
+        // タイムアウト
+        else if (lowerMessage.includes('timeout') || lowerMessage.includes('timed out')) {
+          errorType.type = 'timeout';
+          errorType.category = 'network';
+          errorType.solutions = [
+            'ネットワーク接続が遅いか不安定な可能性があります',
+            'ファイルサイズが大きすぎる可能性があります'
+          ];
+        }
+        // フォーマットエラー（WebView環境を考慮）
+        else if (lowerMessage.includes('corrupted') || lowerMessage.includes('incompatible') ||
+                 lowerMessage.includes('invalid')) {
+          errorType.type = 'format';
+          errorType.category = 'file';
+          
+          // WebView環境の場合は別のメッセージ
+          if (isInWebView) {
+            errorType.solutions = [
+              'このアプリ内ブラウザでは一部の3Dモデルが表示できない場合があります',
+              '標準ブラウザ（Chrome、Safari等）で開くことで正常に表示される可能性があります'
+            ];
+          } else {
+            errorType.solutions = [
+              'このブラウザまたはデバイスでは、このモデルの表示に対応していない可能性があります',
+              '別のブラウザやデバイスで試してみてください',
+              'モデルファイルが特殊な形式や機能を使用している可能性があります'
+            ];
+          }
+        }
+        // テクスチャエラー
+        else if (lowerMessage.includes('texture')) {
+          errorType.type = 'texture';
+          errorType.category = 'file';
+          errorType.solutions = [
+            'モデルのテクスチャファイルが見つからないか読み込めません',
+            'テクスチャファイルがモデルと同じ場所にあることを確認してください'
+          ];
+        }
+        // WebGLエラー
+        else if (lowerMessage.includes('webgl') || lowerMessage.includes('context')) {
+          errorType.type = 'webgl';
+          errorType.category = 'browser';
+          errorType.solutions = [
+            'ブラウザのWebGL機能が無効になっているか、サポートされていません',
+            'ブラウザの設定でハードウェアアクセラレーションを有効にしてください'
+          ];
+        }
+        // 一般的なロードエラー（WebView環境を考慮）
+        else if (lowerMessage.includes('failed to load') || lowerMessage.includes('loading failed')) {
+          errorType.type = 'load';
+          errorType.category = 'general';
+          
+          if (isInWebView) {
+            errorType.solutions = [
+              'アプリ内ブラウザの制限により、3Dモデルを表示できません',
+              '標準ブラウザ（Chrome、Safari等）で開いてください'
+            ];
+          } else {
+            errorType.solutions = [
+              'モデルの読み込みに失敗しました',
+              'ネットワーク接続を確認してください',
+              'しばらく待ってから再度お試しください'
+            ];
+          }
+        }
+        
+        return errorType;
+      }
+
       // エラー表示
       function showError(message, modelUrl) {
         const container = document.querySelector(".container");
-        const isInWebView = detectWebView();
-        const memoryIssues = checkMemoryAndStorage();
+        
+        // まず原因調査中の表示を出す
+        container.innerHTML = `
+          <div class="error-display">
+            <div class="error-icon">⚠️</div>
+            <div class="error-text">
+              <p class="error-title">3D Model Loading Error</p>
+              <p class="error-message">${message}</p>
+              <div style="margin-top: 20px; text-align: center;">
+                <div class="error-spinner"></div>
+                <p style="font-size: 14px; color: #666; margin-top: 15px;">
+                  原因を調査中...
+                </p>
+              </div>
+            </div>
+          </div>
+        `;
+        
+        // 少し遅延を入れて原因調査を実行
+        setTimeout(() => {
+          const isInWebView = detectWebView();
+          const memoryCheck = checkMemoryAndStorage();
+          const memoryIssues = memoryCheck.issues;
+          const memoryDetails = memoryCheck.details;
+          const errorAnalysis = analyzeErrorType(message, modelUrl);
+        
+        // エラータイプに応じた解決策の表示
+        let solutionsHtml = '';
+        if (errorAnalysis.solutions.length > 0) {
+          solutionsHtml = `
+            <div style="margin: 15px 0; padding: 10px; background: rgba(23, 162, 184, 0.1); border-left: 3px solid #17a2b8; border-radius: 4px;">
+              <p style="font-size: 12px; color: #0c5460; margin: 0 0 8px 0;"><strong>考えられる原因と対処法:</strong></p>
+              ${errorAnalysis.solutions.map(solution => `<p style="font-size: 11px; color: #0c5460; margin: 2px 0;">• ${solution}</p>`).join('')}
+            </div>
+          `;
+        }
         
         // メモリ・ストレージ問題がある場合の特別対応
         let storageActions = '';
@@ -828,24 +1011,63 @@ This project includes code from the following third-party libraries:
           `;
         }
         
-        // WebView内かどうかに応じてボタンの表示を変更
+        // システム情報の詳細表示（メモリ関連エラーまたは問題がある場合のみ）
+        let systemInfo = '';
+        if (errorAnalysis.showMemoryInfo || memoryIssues.length > 0) {
+          systemInfo = `
+            <div style="margin: 15px 0; padding: 10px; background: rgba(108, 117, 125, 0.1); border-left: 3px solid #6c757d; border-radius: 4px;">
+              <p style="font-size: 12px; color: #495057; margin: 0 0 8px 0;"><strong>システム情報:</strong></p>
+              ${memoryDetails.deviceMemory ? `<p style="font-size: 11px; color: #495057; margin: 2px 0;">• デバイスメモリ: ${memoryDetails.deviceMemory}</p>` : ''}
+              ${memoryDetails.jsHeapUsed ? `<p style="font-size: 11px; color: #495057; margin: 2px 0;">• JSヒープ使用量: ${memoryDetails.jsHeapUsed}</p>` : ''}
+              ${memoryDetails.localStorageUsed ? `<p style="font-size: 11px; color: #495057; margin: 2px 0;">• LocalStorage使用量: ${memoryDetails.localStorageUsed}</p>` : ''}
+              ${memoryDetails.localStorageStatus === 'FULL' ? `<p style="font-size: 11px; color: #dc3545; margin: 2px 0;">• LocalStorage: 容量上限に達しています</p>` : ''}
+            </div>
+          `;
+        }
+        
+        // エラータイプに応じたボタンとメッセージ
         let buttonContent = '';
         let helpMessage = '';
         
         if (isInWebView) {
+          // MetaMask特有のボタンテキスト
+          const buttonText = isMetaMaskBrowser() 
+            ? '📱 外部ブラウザで開く（Chrome/Safari）'
+            : '📋 URLをコピーして標準ブラウザで開く';
+            
           buttonContent = `
             <button onclick="openInDefaultBrowser('${modelUrl}')" class="viewer-link">
-              📋 URLをコピーして標準ブラウザで開く
+              ${buttonText}
             </button>
           `;
-          helpMessage = 'このアプリ内ブラウザでは3D表示に制限があります。標準ブラウザ（Chrome、Safari等）で開いてください。';
+          
+          // MetaMask特有のヘルプメッセージ
+          if (isMetaMaskBrowser()) {
+            helpMessage = 'MetaMaskブラウザでは3D表示に制限があります。Chrome/Safariなどの標準ブラウザで開いてください。';
+          } else {
+            helpMessage = 'このアプリ内ブラウザでは3D表示に制限があります。標準ブラウザ（Chrome、Safari等）で開いてください。';
+          }
         } else {
-          buttonContent = `
-            <button onclick="window.location.reload()" class="viewer-link">
-              🔄 ページを再読み込み
-            </button>
-          `;
-          helpMessage = 'ブラウザのメモリ不足またはローカルストレージの問題が原因の可能性があります。';
+          // エラータイプに応じたボタン
+          if (errorAnalysis.type === 'cors' || errorAnalysis.type === 'network') {
+            buttonContent = `
+              <button onclick="window.location.reload()" class="viewer-link">
+                🔄 再試行
+              </button>
+              <button onclick="window.location.href=window.location.pathname" class="viewer-link" style="background: #6c757d; margin-left: 5px;">
+                🏠 ホームに戻る
+              </button>
+            `;
+          } else {
+            buttonContent = `
+              <button onclick="window.location.reload()" class="viewer-link">
+                🔄 ページを再読み込み
+              </button>
+            `;
+          }
+          
+          // デフォルトのヘルプメッセージを削除（具体的な解決策で置き換え）
+          helpMessage = '';
         }
         
         container.innerHTML = `
@@ -854,38 +1076,51 @@ This project includes code from the following third-party libraries:
                     <div class="error-text">
                         <p class="error-title">3D Model Loading Error</p>
                         <p class="error-message">${message}</p>
-                        <p class="error-message" style="font-size: 12px; color: #888; margin-top: 10px;">
-                          ${helpMessage}
-                        </p>
+                        ${helpMessage ? `<p class="error-message" style="font-size: 12px; color: #888; margin-top: 10px;">${helpMessage}</p>` : ''}
+                        ${solutionsHtml}
+                        ${systemInfo}
                         ${storageActions}
                         ${buttonContent}
-                        ${!isInWebView ? `<button onclick="clearStorageAndReload()" class="viewer-link" style="background: #6c757d; margin-top: 5px;">
+                        ${!isInWebView && memoryIssues.length > 0 ? `<button onclick="clearStorageAndReload()" class="viewer-link" style="background: #6c757d; margin-top: 5px;">
                           🏠 ストレージクリア後ホームに戻る
                         </button>` : ''}
                     </div>
                 </div>
             `;
+          }, 1500); // 1.5秒後に詳細情報を表示
       }
 
       function clearError() {
         // エラー表示をクリア（必要に応じて実装）
       }
 
-      // WebView環境の検出（シンプル版）
+      // WebView環境の検出（MetaMask対応版）
       function detectWebView() {
         const userAgent = navigator.userAgent;
         
-        // 主要なWebViewパターンのみ
+        // MetaMaskブラウザの検出
+        if (window.ethereum && window.ethereum.isMetaMask) {
+          console.log("MetaMask browser detected");
+          return true;
+        }
+        
+        // 主要なWebViewパターン
         const webViewPatterns = [
           /wv/i,           // Android WebView
           /WebView/i,      // 汎用WebView
           /FBAN|FBAV/i,   // Facebook内ブラウザ
           /Line/i,         // LINE内ブラウザ
           /Instagram/i,    // Instagram内ブラウザ
-          /Twitter/i       // Twitter内ブラウザ
+          /Twitter/i,      // Twitter内ブラウザ
+          /MetaMask/i      // MetaMask Mobile
         ];
         
         return webViewPatterns.some(pattern => pattern.test(userAgent));
+      }
+      
+      // MetaMaskブラウザかどうかを判定
+      function isMetaMaskBrowser() {
+        return (window.ethereum && window.ethereum.isMetaMask) || /MetaMask/i.test(navigator.userAgent);
       }
 
       // 標準ブラウザでURLを開く
@@ -896,13 +1131,74 @@ This project includes code from the following third-party libraries:
         
         console.log('Attempting to open in default browser:', fullUrl);
         
+        // MetaMaskブラウザの場合の特別処理
+        if (isMetaMaskBrowser()) {
+          // モバイルOSの判定
+          const isAndroid = /Android/i.test(navigator.userAgent);
+          const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+          
+          if (isAndroid) {
+            // Androidの場合、複数の方法を試行
+            const androidMethods = [
+              // 方法1: intentスキームでChromeを直接起動
+              () => {
+                const intentUrl = `intent://${fullUrl.replace(/^https?:\/\//, '')}#Intent;scheme=https;package=com.android.chrome;end`;
+                window.location.href = intentUrl;
+              },
+              // 方法2: googlechrome-navigateスキーム
+              () => {
+                window.location.href = `googlechrome://navigate?url=${encodeURIComponent(fullUrl)}`;
+              },
+              // 方法3: 通常のintentスキーム
+              () => {
+                const intentUrl = `intent://${fullUrl.replace(/^https?:\/\//, '')}#Intent;action=android.intent.action.VIEW;scheme=https;end`;
+                window.location.href = intentUrl;
+              }
+            ];
+            
+            // 最初の方法を試行
+            androidMethods[0]();
+            
+            // フォールバック: URLとインストラクション表示
+            setTimeout(() => {
+              showBrowserInstructions(fullUrl, 'Android');
+            }, 1500);
+          } else if (isIOS) {
+            // iOSの場合、複数の方法を試行
+            const iosMethods = [
+              // 方法1: googlechrome-xスキーム
+              () => {
+                const chromeUrl = `googlechrome-x-callback://x-callback-url/open/?url=${encodeURIComponent(fullUrl)}`;
+                window.location.href = chromeUrl;
+              },
+              // 方法2: Safariで開く
+              () => {
+                // iOSではwindow.openが機能する可能性
+                window.open(fullUrl, '_blank');
+              }
+            ];
+            
+            // 最初の方法を試行
+            iosMethods[0]();
+            
+            // フォールバック: URLとインストラクション表示
+            setTimeout(() => {
+              showBrowserInstructions(fullUrl, 'iOS');
+            }, 1500);
+          } else {
+            // デスクトップMetaMask
+            copyToClipboardAndNotify(fullUrl);
+          }
+          return;
+        }
+        
         // モバイル環境の判定
         const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
         const isAndroid = /Android/i.test(navigator.userAgent);
         const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
         
         // 1. Androidの場合、インテントURLを試行
-        if (isAndroid) {
+        if (isAndroid && !isMetaMaskBrowser()) {
           const intentUrl = `intent://${fullUrl.replace(/^https?:\/\//, '')}#Intent;action=android.intent.action.VIEW;scheme=https;end`;
           window.location.href = intentUrl;
           
@@ -914,7 +1210,7 @@ This project includes code from the following third-party libraries:
         }
         
         // 2. iOSの場合、window.openを試行
-        if (isIOS) {
+        if (isIOS && !isMetaMaskBrowser()) {
           const newWindow = window.open(fullUrl, '_blank');
           if (!newWindow || newWindow.closed || typeof newWindow.closed == 'undefined') {
             // ポップアップがブロックされた場合
@@ -934,6 +1230,29 @@ This project includes code from the following third-party libraries:
         } catch (e) {
           // エラーの場合はクリップボードにコピー
           copyToClipboardAndNotify(fullUrl);
+        }
+      }
+      
+      // MetaMask用のブラウザ指示を表示
+      function showBrowserInstructions(url, platform) {
+        const message = platform === 'iOS' 
+          ? `MetaMaskアプリ内では直接ブラウザを開けません。\n\n以下の手順で開いてください：\n1. このURLをコピー\n2. SafariまたはChromeを開く\n3. URLを貼り付けてアクセス\n\nURL: ${url}`
+          : `MetaMaskアプリ内では直接ブラウザを開けません。\n\n以下の手順で開いてください：\n1. このURLをコピー\n2. ChromeまたはFirefoxを開く\n3. URLを貼り付けてアクセス\n\nURL: ${url}`;
+        
+        alert(message);
+        
+        // URLをクリップボードにコピー
+        copyToClipboard(url);
+      }
+      
+      // クリップボードにコピー（通知なし）
+      function copyToClipboard(url) {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(url).catch(() => {
+            fallbackCopyToClipboard(url);
+          });
+        } else {
+          fallbackCopyToClipboard(url);
         }
       }
 

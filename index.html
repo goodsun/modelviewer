@@ -896,8 +896,45 @@ This project includes code from the following third-party libraries:
         
         console.log('Attempting to open in default browser:', fullUrl);
         
-        // まずクリップボードにコピーを試行
-        copyToClipboardAndNotify(fullUrl);
+        // モバイル環境の判定
+        const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+        const isAndroid = /Android/i.test(navigator.userAgent);
+        const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+        
+        // 1. Androidの場合、インテントURLを試行
+        if (isAndroid) {
+          const intentUrl = `intent://${fullUrl.replace(/^https?:\/\//, '')}#Intent;action=android.intent.action.VIEW;scheme=https;end`;
+          window.location.href = intentUrl;
+          
+          // フォールバック: 3秒後にクリップボードコピー
+          setTimeout(() => {
+            copyToClipboardAndNotify(fullUrl);
+          }, 3000);
+          return;
+        }
+        
+        // 2. iOSの場合、window.openを試行
+        if (isIOS) {
+          const newWindow = window.open(fullUrl, '_blank');
+          if (!newWindow || newWindow.closed || typeof newWindow.closed == 'undefined') {
+            // ポップアップがブロックされた場合
+            copyToClipboardAndNotify(fullUrl);
+          }
+          return;
+        }
+        
+        // 3. デスクトップまたはその他の環境
+        try {
+          // 新しいタブで開く
+          const newWindow = window.open(fullUrl, '_blank');
+          if (!newWindow || newWindow.closed || typeof newWindow.closed == 'undefined') {
+            // ポップアップがブロックされた場合
+            copyToClipboardAndNotify(fullUrl);
+          }
+        } catch (e) {
+          // エラーの場合はクリップボードにコピー
+          copyToClipboardAndNotify(fullUrl);
+        }
       }
 
       // クリップボードにコピーしてユーザーに通知

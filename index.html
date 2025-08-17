@@ -142,8 +142,8 @@ This project includes code from the following third-party libraries:
         position: absolute;
         top: 15px;
         right: 15px;
-        width: 40px;
-        height: 40px;
+        width: 30px;
+        height: 30px;
         border: none;
         border-radius: 50%;
         background: rgba(255, 255, 255, 0.9);
@@ -157,8 +157,8 @@ This project includes code from the following third-party libraries:
       }
 
       .light-control-button svg {
-        width: 28px;
-        height: 28px;
+        width: 21px;
+        height: 21px;
         fill: #333;
       }
 
@@ -171,7 +171,7 @@ This project includes code from the following third-party libraries:
       .light-controls {
         position: absolute;
         top: 15px;
-        right: 65px;
+        right: 50px;
         background: rgba(255, 255, 255, 0.95);
         border-radius: 8px;
         padding: 15px;
@@ -317,6 +317,18 @@ This project includes code from the following third-party libraries:
         margin: 0;
         opacity: 0.9;
       }
+      
+      /* センターボタンのホバー効果 */
+      .center-button:hover {
+        background: rgba(255, 255, 255, 1);
+        transform: scale(1.1);
+      }
+      
+      /* 最大化ボタンのホバー効果 */
+      .maximize-button:hover {
+        background: rgba(255, 255, 255, 1);
+        transform: scale(1.1);
+      }
 
       /* エラー表示 */
       .error-display {
@@ -380,7 +392,7 @@ This project includes code from the following third-party libraries:
       @media (max-width: 768px) {
         .light-controls {
           right: 10px;
-          top: 65px;
+          top: 55px;
           min-width: 180px;
         }
       }
@@ -468,6 +480,34 @@ This project includes code from the following third-party libraries:
           <div class="progress-percent" id="progressPercent">0%</div>
         </div>
       </model-viewer>
+
+      <!-- 最大化ボタン -->
+      <a
+        href=""
+        target="_blank"
+        class="maximize-button"
+        id="maximizeButton"
+        title="Open in New Window"
+        style="position: absolute; top: 15px; left: 15px; width: 30px; height: 30px; border: none; border-radius: 50%; background: rgba(255, 255, 255, 0.9); cursor: pointer; z-index: 100; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2); transition: all 0.2s ease; display: flex; align-items: center; justify-content: center; text-decoration: none;"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" style="width: 18px; height: 18px; fill: #333;">
+          <!--!Font Awesome Free 6.7.2 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free Copyright 2025 Fonticons, Inc.-->
+          <path d="M320 0c-17.7 0-32 14.3-32 32s14.3 32 32 32l82.7 0L201.4 265.4c-12.5 12.5-12.5 32.8 0 45.3s32.8 12.5 45.3 0L448 109.3l0 82.7c0 17.7 14.3 32 32 32s32-14.3 32-32l0-160c0-17.7-14.3-32-32-32L320 0zM80 32C35.8 32 0 67.8 0 112L0 432c0 44.2 35.8 80 80 80l320 0c44.2 0 80-35.8 80-80l0-320c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 320c0 8.8-7.2 16-16 16L80 448c-8.8 0-16-7.2-16-16l0-320c0-8.8 7.2-16 16-16l224 0c17.7 0 32-14.3 32-32s-14.3-32-32-32L80 32z"/>
+        </svg>
+      </a>
+
+      <!-- センターボタン -->
+      <button
+        class="center-button"
+        id="centerButton"
+        title="Center Model"
+        style="position: absolute; top: 15px; right: 60px; width: 30px; height: 30px; border: none; border-radius: 50%; background: rgba(255, 255, 255, 0.9); cursor: pointer; z-index: 100; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2); transition: all 0.2s ease; display: flex; align-items: center; justify-content: center;"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" style="width: 18px; height: 18px; fill: #333;">
+          <!--!Font Awesome Free 6.7.2 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free Copyright 2025 Fonticons, Inc.-->
+          <path d="M256 0c17.7 0 32 14.3 32 32l0 34.7C368.4 80.1 431.9 143.6 445.3 224l34.7 0c17.7 0 32 14.3 32 32s-14.3 32-32 32l-34.7 0C431.9 368.4 368.4 431.9 288 445.3l0 34.7c0 17.7-14.3 32-32 32s-32-14.3-32-32l0-34.7C143.6 431.9 80.1 368.4 66.7 288L32 288c-17.7 0-32-14.3-32-32s14.3-32 32-32l34.7 0C80.1 143.6 143.6 80.1 224 66.7L224 32c0-17.7 14.3-32 32-32zM128 256a128 128 0 1 0 256 0 128 128 0 1 0 -256 0zm128-80a80 80 0 1 1 0 160 80 80 0 1 1 0-160z"/>
+        </svg>
+      </button>
 
       <!-- ライトコントロールボタン -->
       <button
@@ -567,6 +607,7 @@ This project includes code from the following third-party libraries:
       const shadowValue = document.getElementById("shadowValue");
       const bgBlackBtn = document.getElementById("bgBlackBtn");
       const bgWhiteBtn = document.getElementById("bgWhiteBtn");
+      const centerButton = document.getElementById("centerButton");
 
       let showControls = false;
       let currentBackgroundColor = "black";
@@ -575,6 +616,49 @@ This project includes code from the following third-party libraries:
       lightControlButton.addEventListener("click", () => {
         showControls = !showControls;
         lightControls.style.display = showControls ? "block" : "none";
+      });
+      
+      // モデルをセンターに配置する関数
+      function centerModel() {
+        if (!modelViewer || !modelViewer.loaded) {
+          console.log("Model not loaded yet");
+          return;
+        }
+        
+        // 現在のカメラ位置を取得
+        const currentOrbit = modelViewer.getCameraOrbit();
+        console.log("Current camera orbit:", currentOrbit);
+        
+        // モデルのバウンディングボックスの中心を取得
+        const bounds = modelViewer.getBoundingBoxCenter();
+        console.log("Model bounds center:", bounds);
+        
+        // バウンディングボックスの中心をカメラターゲットに設定
+        if (bounds) {
+          // メートル単位で設定（model-viewerの仕様）
+          modelViewer.cameraTarget = `${bounds.x}m ${bounds.y}m ${bounds.z}m`;
+        } else {
+          // フォールバック: 自動センタリング
+          modelViewer.cameraTarget = "auto auto auto";
+        }
+        
+        // 現在の角度を維持しながら距離のみを調整
+        const theta = currentOrbit.theta;
+        const phi = currentOrbit.phi;
+        
+        // モデル全体が見えるように距離を調整
+        modelViewer.cameraOrbit = `${theta}rad ${phi}rad 105%`;
+        
+        // スムーズなトランジション
+        modelViewer.interpolationDecay = 100;
+        
+        console.log("Model centered with target:", modelViewer.cameraTarget);
+        console.log("Model centered with orbit:", modelViewer.cameraOrbit);
+      }
+      
+      // センターボタンのクリックイベント
+      centerButton.addEventListener("click", () => {
+        centerModel();
       });
 
       // モデル読み込み完了
@@ -1889,6 +1973,12 @@ This project includes code from the following third-party libraries:
       document.addEventListener("DOMContentLoaded", () => {
         console.log("🚀 Page loaded, initializing...");
         updateBackgroundColor();
+        
+        // 最大化ボタンのhrefを現在のURLで更新
+        const maximizeButton = document.getElementById("maximizeButton");
+        if (maximizeButton) {
+          maximizeButton.href = window.location.href;
+        }
 
         // URLパラメータにモデルURLがあれば読み込み
         const modelUrl = getModelUrlFromParams();
